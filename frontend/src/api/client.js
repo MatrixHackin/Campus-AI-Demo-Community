@@ -4,6 +4,7 @@ const API_BASE_URL = configuredBaseUrl || fallbackBaseUrl
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(options.headers || {})
@@ -27,11 +28,15 @@ export async function login(payload) {
   })
 }
 
+export async function getCurrentUser() {
+  return request('/auth/me')
+}
+
 export async function createSandbox(token, payload = {}) {
   return request('/sandboxes', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${token}`
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     },
     body: JSON.stringify(payload)
   })
@@ -40,7 +45,7 @@ export async function createSandbox(token, payload = {}) {
 export async function getMySandboxes(token) {
   return request('/sandboxes/me', {
     headers: {
-      Authorization: `Bearer ${token}`
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
     }
   })
 }

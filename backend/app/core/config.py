@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     mysql_charset: str = 'utf8mb4'
     mysql_user_table: str = 'users'
 
+    session_cookie_name: str = 'campus_ai_session'
+    session_cookie_secure: bool = True
+    session_cookie_samesite: str = 'lax'
+
+    sso_domain: str = 'https://devsso.hkust-gz.edu.cn'
+    sso_client_id: str = ''
+    sso_client_secret: str = ''
+    sso_redirect_uri: str = 'https://localhost:8080/signin-oidc'
+    sso_post_logout_redirect_uri: str = 'https://localhost:8080/signout-callback'
+    sso_scope: str = 'openid profile'
+
     mock_kubernetes: bool = True
     kubernetes_namespace: str = 'campus-sandbox'
     kubeconfig_path: str | None = None

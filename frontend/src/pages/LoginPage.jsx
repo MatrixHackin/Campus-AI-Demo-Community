@@ -4,12 +4,12 @@ import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, isLoading } = useAuth()
   const [form, setForm] = useState({ username: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  if (isAuthenticated) {
+  if (!isLoading && isAuthenticated) {
     return <Navigate to="/dashboard" replace />
   }
 
@@ -44,6 +44,12 @@ export default function LoginPage() {
           </div>
 
           <form className="form-grid" onSubmit={onSubmit}>
+            <a className="btn btn--sso btn--full" href="/auth/sso/login">
+              校园 SSO 认证登录
+            </a>
+
+            <div className="form-separator" aria-hidden="true" />
+
             <label>
               <span>用户名</span>
               <input

@@ -1,5 +1,5 @@
-import { createContext, useContext, useMemo, useState } from 'react'
-import { login as loginApi } from '../api/client'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { getCurrentUser, login as loginApi } from '../api/client'
 
 const AuthContext = createContext(null)
 const STORAGE_KEY = 'campus-ai-auth'
@@ -14,6 +14,40 @@ export function AuthProvider({ children }) {
       return null
     }
   })
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let ignore = false
+
+    async function syncCookieSession() {
+      try {
+        const result = await getCurrentUser()
+        if (!ignore) {
+          setSession((current) => ({
+            token: current?.token || null,
+            user: result.user,
+            expiresAt: result.expires_at,
+            authProvider: result.auth_provider
+          }))
+        }
+      } catch {
+        if (!ignore && !session?.token) {
+          setSession(null)
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false)
+        }
+      }
+    }
+
+    syncCookieSession()
+    return () => {
+      ignore = true
+    }
+    // only run once on app startup
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const login = async (credentials) => {
     const result = await loginApi(credentials)
@@ -30,6 +64,7 @@ export function AuthProvider({ children }) {
   const logout = () => {
     localStorage.removeItem(STORAGE_KEY)
     setSession(null)
+    window.location.href = '/auth/logout'
   }
 
   const value = useMemo(
@@ -37,11 +72,12 @@ export function AuthProvider({ children }) {
       session,
       user: session?.user || null,
       token: session?.token || null,
-      isAuthenticated: Boolean(session?.token),
+      isLoading: loading,
+      isAuthenticated: Boolean(session?.token || session?.user),
       login,
       logout
     }),
-    [session]
+    [loading, session]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

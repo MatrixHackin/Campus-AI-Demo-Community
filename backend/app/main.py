@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.deps import settings
-from app.api.routes.auth import router as auth_router
+from app.api.routes.auth import callback_router, router as auth_router
 from app.api.routes.sandbox import router as sandbox_router
 
 
@@ -31,6 +31,8 @@ def create_application() -> FastAPI:
         }
 
     application.include_router(auth_router, prefix='/api/v1')
+    application.include_router(auth_router)
+    application.include_router(callback_router)
     application.include_router(sandbox_router, prefix='/api/v1')
     return application
 

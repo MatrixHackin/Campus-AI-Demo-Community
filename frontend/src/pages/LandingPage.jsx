@@ -18,7 +18,10 @@ export default function LandingPage() {
       <main className="landing-main">
         <section className="landing-hero" aria-labelledby="landing-title">
           <div className="landing-copy">
-            <h1 id="landing-title">校园 AI 社区平台</h1>
+            <h1 id="landing-title" className="art-title">
+              <span>校园AI+</span>
+              <span>应用社区</span>
+            </h1>
             <p>面向校园用户的统一智能服务入口。</p>
             <div className="hero-actions">
               <Link className="btn btn--primary" to="/login">
@@ -28,9 +31,16 @@ export default function LandingPage() {
           </div>
           <div className="hero-visual" aria-hidden="true">
             <div className="hero-visual__panel">
-              <span />
-              <span />
-              <span />
+              <div className="gpunion-card">
+                <div>
+                  <strong>GPUnion</strong>
+                  <span>AI Computing Platform</span>
+                </div>
+              </div>
+              <div className="gpunion-orbit gpunion-orbit--one" />
+              <div className="gpunion-orbit gpunion-orbit--two" />
+              <div className="gpunion-node gpunion-node--one" />
+              <div className="gpunion-node gpunion-node--two" />
             </div>
           </div>
         </section>

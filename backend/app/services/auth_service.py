@@ -136,6 +136,7 @@ class AuthService:
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
+            auth_provider='local',
         )
         return {
             'access_token': session.token,

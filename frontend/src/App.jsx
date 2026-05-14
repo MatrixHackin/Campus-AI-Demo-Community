@@ -1,7 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
-import DashboardPage from './pages/DashboardPage'
+import WorkspacePage from './pages/WorkspacePage'
+import CommunityPage from './pages/CommunityPage'
+import MyAppsPage from './pages/MyAppsPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -13,7 +15,23 @@ export default function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <DashboardPage />
+            <WorkspacePage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/community"
+        element={
+          <ProtectedRoute>
+            <CommunityPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/my-apps"
+        element={
+          <ProtectedRoute>
+            <MyAppsPage />
           </ProtectedRoute>
         }
       />

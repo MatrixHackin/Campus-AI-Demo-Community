@@ -47,6 +47,32 @@ python scripts/hash_password.py 你的密码
 
 输出结果直接填入 `users.password_hash` 字段。
 
+## 校园 SSO 登录
+
+后端已支持 HKUST(GZ) Campus SSO Authorization Code + PKCE 登录。
+
+需要在 `.env` 中配置：
+
+```env
+SSO_DOMAIN=https://devsso.hkust-gz.edu.cn
+SSO_CLIENT_ID=你的 client id
+SSO_CLIENT_SECRET=你的 client secret
+SSO_REDIRECT_URI=https://localhost:8080/signin-oidc
+SSO_POST_LOGOUT_REDIRECT_URI=https://localhost:8080/signout-callback
+SSO_SCOPE=openid profile
+SESSION_COOKIE_SECURE=true
+SESSION_COOKIE_SAMESITE=lax
+```
+
+SSO 相关路由：
+
+- `GET /auth/sso/login`
+- `GET /signin-oidc`
+- `GET|POST /auth/logout`
+- `GET /signout-callback`
+
+SSO token 只保存在后端内存会话中，前端通过 HttpOnly Cookie 维持本地登录态。
+
 ## 开发沙盒接口
 - `POST /api/v1/sandboxes`
 - `GET /api/v1/sandboxes/me`

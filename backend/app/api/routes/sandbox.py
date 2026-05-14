@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api.deps import get_sandbox_service, get_token_store
+from app.api.deps import get_sandbox_service, get_token_store, settings
 from app.schemas.sandbox import SandboxCreateRequest, SandboxListResponse, SandboxResponse
 from app.services.sandbox_service import SandboxService
 from app.services.token_store import SessionRecord, TokenStore
@@ -12,12 +12,14 @@ security = HTTPBearer(auto_error=False)
 
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
     token_store: TokenStore = Depends(get_token_store),
 ) -> SessionRecord:
-    if not credentials:
+    token = credentials.credentials if credentials else session_token
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='缺少登录凭证')
 
-    session = token_store.get_session(credentials.credentials)
+    session = token_store.get_session(token)
     if not session:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='登录状态已失效，请重新登录')
     return session
