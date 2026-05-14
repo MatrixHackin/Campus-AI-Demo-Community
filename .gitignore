@@ -205,3 +205,11 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project local files
+node_modules/
+frontend/node_modules/
+frontend/dist/
+backend/.venv/
+.codex
+.run/

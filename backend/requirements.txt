@@ -1,0 +1,5 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.1
+pydantic-settings==2.8.1
+kubernetes==31.0.0
+PyMySQL==1.1.1

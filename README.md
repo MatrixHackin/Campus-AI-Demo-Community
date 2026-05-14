@@ -1,1 +1,60 @@
-# Campus-AI-Demo-Community
+# Campus AI Demo Community
+
+一个前后端分离的网页端应用示例：
+
+- **前端**：React + Vite
+- **后端**：FastAPI
+- **云原生能力**：后端通过 Kubernetes API 申请开发沙盒容器
+
+## 页面功能
+- 炫酷首页
+- 登录页面
+- 登录后主界面
+- “开发沙盒”按钮申请后端容器
+
+## 目录结构
+```text
+backend/   FastAPI 服务
+frontend/  React 前端
+```
+
+## 代码导读
+- 系统化阅读建议见：`CODE_GUIDE.md`
+
+## 快速启动
+### 1. 启动后端
+```bash
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 2. 启动前端
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## 局域网访问
+- 前端默认监听 `0.0.0.0:5173`
+- 后端默认监听 `0.0.0.0:8000`
+- 前端若未配置 `VITE_API_BASE_URL`，会自动请求 `http://当前访问主机名:8000/api/v1`
+- 局域网内其他设备可通过 `http://你的电脑局域网IP:5173` 打开页面
+- 可先访问 `http://你的电脑局域网IP:8000/api/health` 检查后端连通性
+
+## 演示账号
+- 用户名：`admin`
+- 密码：`admin123`
+
+## 数据库认证接口预留位置
+- `backend/app/db/interfaces.py`
+- `backend/app/services/auth_service.py`
+
+## Kubernetes 沙盒逻辑位置
+- `backend/app/services/sandbox_service.py`
+
+默认 `.env.example` 中使用 `MOCK_KUBERNETES=true`，便于本地联调；接入真实集群后可改为 `false`。
