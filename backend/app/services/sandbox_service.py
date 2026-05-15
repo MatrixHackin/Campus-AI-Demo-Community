@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from secrets import token_hex
+from typing import Any
 
 from fastapi import HTTPException, status
 
+from app.api.k3sapi import K3SAPI, PodCreationError
 from app.core.config import Settings
 from app.schemas.sandbox import SandboxCreateRequest, SandboxResponse
 
@@ -13,120 +15,89 @@ from app.schemas.sandbox import SandboxCreateRequest, SandboxResponse
 class SandboxService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self._mock_sandboxes: dict[str, list[SandboxResponse]] = {}
+        self._k3s_api: K3SAPI | None = None
 
-    def _get_kubernetes_sdk(self):
-        try:
-            from kubernetes import client, config
-            from kubernetes.client.rest import ApiException
-            from kubernetes.config.config_exception import ConfigException
-        except ImportError as exc:
-            raise HTTPException(status_code=500, detail='未安装 kubernetes Python SDK') from exc
+    def _get_k3s_api(self) -> K3SAPI:
+        if self._k3s_api is None:
+            try:
+                self._k3s_api = K3SAPI(settings=self.settings)
+            except ImportError as exc:
+                raise HTTPException(status_code=500, detail='未安装 kubernetes Python SDK') from exc
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f'初始化 K3s 客户端失败: {str(exc)}') from exc
+        return self._k3s_api
 
-        try:
-            config.load_incluster_config()
-        except ConfigException:
-            config.load_kube_config(config_file=self.settings.kubeconfig_path)
+    def _namespace_for_user(self, username: str) -> str:
+        if self.settings.sandbox_namespace_mode == 'user':
+            return self._safe_name(username, fallback='user')
+        return self.settings.kubernetes_namespace
 
-        return client, ApiException
+    @staticmethod
+    def _safe_name(value: str, fallback: str = 'user') -> str:
+        safe = re.sub(r'[^a-z0-9-]+', '-', value.lower()).strip('-')
+        return (safe or fallback)[:63].rstrip('-') or fallback
 
     def _build_names(self, username: str) -> tuple[str, str]:
-        safe_username = re.sub(r'[^a-z0-9-]+', '-', username.lower()).strip('-') or 'user'
+        safe_username = self._safe_name(username)
         suffix = token_hex(3)
         sandbox_id = f'{safe_username}-{suffix}'
         pod_name = f'dev-sandbox-{sandbox_id}'[:63].rstrip('-')
         return sandbox_id, pod_name
 
-    def _build_sandbox_from_pod(self, pod, username: str) -> SandboxResponse:
-        return SandboxResponse(
-            sandbox_id=(pod.metadata.labels or {}).get('sandbox-id', pod.metadata.name),
-            pod_name=pod.metadata.name,
-            namespace=pod.metadata.namespace,
-            status=pod.status.phase,
-            image=pod.spec.containers[0].image if pod.spec.containers else 'unknown',
-            created_at=pod.metadata.creation_timestamp,
-            access_hint='可在这里继续扩展访问地址、日志、端口转发等能力。',
-            owner=username,
-        )
+    def _build_access_hint(self, services: list[dict[str, Any]] | None = None) -> str:
+        if not services:
+            return 'Pod 已提交到 K3s，由调度器自动选择节点；未创建 NodePort Service。'
 
-    def _create_mock_sandbox(self, username: str, payload: SandboxCreateRequest) -> SandboxResponse:
-        sandbox_id, pod_name = self._build_names(username)
-        sandbox = SandboxResponse(
-            sandbox_id=sandbox_id,
-            pod_name=pod_name,
-            namespace=self.settings.kubernetes_namespace,
-            status='mock-created',
-            image=payload.image or self.settings.default_sandbox_image,
-            created_at=datetime.now(timezone.utc),
-            access_hint='当前为 MOCK_KUBERNETES=true，本次仅模拟创建。接入真实集群后可返回 Pod/Service 地址。',
-            owner=username,
-        )
-        self._mock_sandboxes.setdefault(username, []).insert(0, sandbox)
-        return sandbox
+        node_ports: list[str] = []
+        for service in services:
+            for port in service.get('ports', []) if 'ports' in service else [service]:
+                node_port = port.get('node_port')
+                name = port.get('name') or service.get('name') or 'service'
+                if node_port:
+                    node_ports.append(f'{name}: NodePort {node_port}')
+        if node_ports:
+            return 'Pod 已提交到 K3s，由调度器自动选择节点；Service 已创建：' + '，'.join(node_ports)
+        return 'Pod 已提交到 K3s，由调度器自动选择节点；Service 已创建。'
 
     def create_sandbox(self, username: str, payload: SandboxCreateRequest) -> SandboxResponse:
-        if self.settings.mock_kubernetes:
-            return self._create_mock_sandbox(username, payload)
-
+        sandbox_id, pod_name = self._build_names(username)
+        namespace = self._namespace_for_user(username)
         try:
-            client, ApiException = self._get_kubernetes_sdk()
-            api = client.CoreV1Api()
-            sandbox_id, pod_name = self._build_names(username)
-            namespace = self.settings.kubernetes_namespace
-
-            container = client.V1Container(
-                name='sandbox',
+            result = self._get_k3s_api().create_pod(
+                owner=username,
+                user_email=username,
                 image=payload.image or self.settings.default_sandbox_image,
-                command=payload.command or self.settings.default_sandbox_command,
-                args=payload.args,
-                env=[client.V1EnvVar(name=k, value=v) for k, v in payload.env.items()],
-                resources=client.V1ResourceRequirements(
-                    requests={
-                        'cpu': payload.cpu_request,
-                        'memory': payload.memory_request,
-                    }
-                ),
-            )
-
-            pod_manifest = client.V1Pod(
-                metadata=client.V1ObjectMeta(
-                    name=pod_name,
-                    labels={
-                        'app': 'campus-ai-sandbox',
-                        'sandbox-owner': username,
-                        'sandbox-id': sandbox_id,
-                    },
-                ),
-                spec=client.V1PodSpec(restart_policy='Never', containers=[container]),
-            )
-
-            try:
-                api.read_namespace(namespace)
-            except ApiException as exc:
-                if exc.status == 404:
-                    namespaces = client.CoreV1Api()
-                    namespaces.create_namespace(
-                        client.V1Namespace(metadata=client.V1ObjectMeta(name=namespace))
-                    )
-                else:
-                    raise
-
-            api.create_namespaced_pod(namespace=namespace, body=pod_manifest)
-
-            return SandboxResponse(
+                namespace=namespace,
                 sandbox_id=sandbox_id,
                 pod_name=pod_name,
-                namespace=namespace,
-                status='creating',
-                image=container.image,
-                created_at=datetime.now(timezone.utc),
-                access_hint='Pod 已提交到 Kubernetes，后续可扩展为返回 Service/Ingress/VS Code Web 地址。',
-                owner=username,
+                gpu_count=payload.gpu_count,
+                username=payload.sandbox_username,
+                password=payload.sandbox_password,
+                command=payload.command,
+                args=payload.args,
+                env=payload.env,
+                cpu_request=payload.cpu_request,
+                memory_request=payload.memory_request,
+                pod_label=payload.pod_label,
+                enable_nodeport=payload.enable_nodeport,
+                wait_until_running=payload.wait_until_running,
             )
-        except ApiException as exc:
+            services = [result['service']] if result.get('service') else []
+            return SandboxResponse(
+                sandbox_id=result['sandbox_id'],
+                pod_name=result['pod_name'],
+                namespace=result['namespace'],
+                status=result['status'],
+                image=result['image'],
+                created_at=result['created_at'],
+                access_hint=self._build_access_hint(services),
+                owner=username,
+                services=services,
+            )
+        except PodCreationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f'Kubernetes API 调用失败: {exc.reason}',
+                detail=str(exc),
             ) from exc
         except Exception as exc:
             raise HTTPException(
@@ -135,17 +106,30 @@ class SandboxService:
             ) from exc
 
     def list_sandboxes(self, username: str) -> list[SandboxResponse]:
-        if self.settings.mock_kubernetes:
-            return self._mock_sandboxes.get(username, [])
-
         try:
-            client, _ = self._get_kubernetes_sdk()
-            api = client.CoreV1Api()
-            pods = api.list_namespaced_pod(
-                namespace=self.settings.kubernetes_namespace,
-                label_selector=f'app=campus-ai-sandbox,sandbox-owner={username}',
-            )
-            items = [self._build_sandbox_from_pod(pod, username) for pod in pods.items]
+            pods = self._get_k3s_api().get_user_pods(owner=username, namespace=self._namespace_for_user(username))
+            items: list[SandboxResponse] = []
+            for pod in pods:
+                created_at_raw = pod.get('created_at') or pod.get('start_time')
+                try:
+                    created_at = datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(timezone.utc)
+                except ValueError:
+                    created_at = datetime.now(timezone.utc)
+
+                services = pod.get('services') or []
+                items.append(
+                    SandboxResponse(
+                        sandbox_id=pod.get('sandbox_id') or pod['pod_name'],
+                        pod_name=pod['pod_name'],
+                        namespace=pod['namespace'],
+                        status=pod.get('status') or 'Unknown',
+                        image=pod.get('image_name') or 'unknown',
+                        created_at=created_at,
+                        access_hint=self._build_access_hint(services),
+                        owner=username,
+                        services=services,
+                    )
+                )
             return sorted(items, key=lambda item: item.created_at, reverse=True)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f'获取沙盒列表失败: {str(exc)}') from exc

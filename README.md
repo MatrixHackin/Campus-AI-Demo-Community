@@ -57,4 +57,4 @@ npm run dev
 ## Kubernetes 沙盒逻辑位置
 - `backend/app/services/sandbox_service.py`
 
-默认 `.env.example` 中使用 `MOCK_KUBERNETES=true`，便于本地联调；接入真实集群后可改为 `false`。
+沙盒接口直接连接真实 K3s 集群创建 Pod，由 K3s scheduler 自动调度。

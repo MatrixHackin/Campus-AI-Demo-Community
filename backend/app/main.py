@@ -27,7 +27,6 @@ def create_application() -> FastAPI:
         return {
             'status': 'ok',
             'environment': settings.app_env,
-            'mock_kubernetes': settings.mock_kubernetes,
         }
 
     application.include_router(auth_router, prefix='/api/v1')
