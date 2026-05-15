@@ -2,8 +2,8 @@
 
 ## 功能
 - 登录接口（支持 demo 模式，保留自定义数据库接口扩展点）
-- 开发沙盒接口（可通过 Kubernetes API 申请 Pod）
-- 开发沙盒接口直接连接真实 K3s 集群创建 Pod
+- 校园 SSO 登录
+- 当前工作台页面暂为空，后续通过创建 container 的方式重新实现工作台能力
 
 ## 启动
 ```bash
@@ -79,8 +79,9 @@ SSO 登录成功后，后端会将 SSO 返回的用户画像 upsert 到 `sso_use
 `sub` 与本地业务用户的映射，以及 `name/display_name/type/email/department/emp_id`
 等业务字段；不会保存用户密码。若 MySQL 不可用或未初始化该表，登录不会被阻断，但后端会记录 warning。
 
-## 开发沙盒接口
-- `POST /api/v1/sandboxes`
-- `GET /api/v1/sandboxes/me`
+## 已知限制与后续优化
 
-默认创建的是 Pod，由 K3s scheduler 自动调度；你也可以继续扩展为 Deployment / Service / Ingress。
+- 当前后端登录 session 仍由单进程内存 `TokenStore` 保存，适合当前单实例部署；后续如果启用多进程、
+  多节点或需要应用重启后保留登录态，应迁移到 Redis / 数据库存储。
+- SSO 授权地址中保留 `client_secret` 参数。虽然常规 OAuth2/OIDC 实践通常不建议在 authorize URL 中
+  传递 secret，但当前对接文档将其列为必传参数，因此暂不修改；除非 SSO 管理员确认协议变更。

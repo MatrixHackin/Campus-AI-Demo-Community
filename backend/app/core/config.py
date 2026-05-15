@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=('.env', 'backend/.env'), env_file_encoding='utf-8', extra='ignore')
 
-    app_name: str = 'Campus AI Sandbox API'
+    app_name: str = 'Campus AI API'
     app_env: str = 'development'
     app_host: str = '0.0.0.0'
     app_port: int = 8000
@@ -52,44 +52,6 @@ class Settings(BaseSettings):
     sso_user_persistence_enabled: bool = True
     sso_user_table: str = 'sso_users'
 
-    # Kubernetes / K3s
-    kubernetes_namespace: str = 'campus-sandbox'
-    kubeconfig_path: str | None = None
-    k3s_config_path: str = '/etc/rancher/k3s/k3s.yaml'
-    sandbox_namespace_mode: str = 'shared'  # shared 或 user
-    default_sandbox_image: str = 'python:3.11-slim'
-    default_sandbox_command: Annotated[List[str], NoDecode] = Field(
-        default_factory=lambda: ['/bin/sh', '-c', 'sleep infinity']
-    )
-    default_sandbox_username: str = 'user'
-    default_sandbox_password: str = 'password'
-    default_sandbox_gpu_count: int = 0
-    default_sandbox_cpu: str = '4'
-    default_sandbox_memory: str = '8Gi'
-    default_sandbox_shm_size: str = '8Gi'
-    gpu_cpu_per_card: int = 16
-    gpu_memory_per_card_gi: int = 48
-    gpu_shm_per_card_gi: int = 24
-    nvidia_runtime_class_name: str = 'nvidia'
-    ascend_image_name: str = 'gpunion2.io/cann'
-    enable_sandbox_nodeport: bool = True
-    sandbox_ssh_port: int = 22
-    sandbox_wait_until_running: bool = False
-    sandbox_wait_timeout_seconds: int = 120
-
-    # Harbor. 账号和密码请通过 .env/环境变量配置，不要写入源码。
-    harbor_url: str = 'http://10.120.17.137:5053/api/v2.0/'
-    harbor_registry: str = 'gpunion2.io'
-    harbor_admin_username: str = ''
-    harbor_admin_password: str = ''
-    harbor_user_default_password: str = ''
-    harbor_user_default_storage_quota: int = 50 * 1024 * 1024 * 1024
-    harbor_public_project: str = 'library'
-    harbor_dev_project: str = 'dev'
-
-    prometheus_url: str = 'http://10.43.146.195:9090'
-    user_max_storage: float = 512.00
-
     @field_validator('cors_origins', mode='before')
     @classmethod
     def parse_cors_origins(cls, value):
@@ -103,26 +65,6 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             value = value.strip()
             return value or None
-        return value
-
-    @field_validator('default_sandbox_command', mode='before')
-    @classmethod
-    def parse_default_command(cls, value):
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(',') if item.strip()]
-        return value
-
-    @field_validator('sandbox_namespace_mode', mode='before')
-    @classmethod
-    def parse_namespace_mode(cls, value):
-        value = (value or 'shared').strip().lower()
-        return value if value in {'shared', 'user'} else 'shared'
-
-    @field_validator('harbor_url', mode='before')
-    @classmethod
-    def normalize_harbor_url(cls, value):
-        if isinstance(value, str) and value:
-            return value.rstrip('/') + '/'
         return value
 
 

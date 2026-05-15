@@ -4,6 +4,7 @@ import hashlib
 import re
 
 from fastapi import HTTPException, status
+from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings
 from app.db.interfaces import AuthRepository, UserRecord
@@ -60,7 +61,7 @@ class MySQLAuthRepository(AuthRepository):
         ).hex()
         return actual_hash == expected_hash
 
-    async def authenticate(self, username: str, password: str) -> UserRecord | None:
+    def _authenticate_sync(self, username: str, password: str) -> UserRecord | None:
         try:
             import pymysql
             from pymysql.cursors import DictCursor
@@ -112,6 +113,9 @@ class MySQLAuthRepository(AuthRepository):
             username=row['username'],
             display_name=row.get('display_name') or row['username'],
         )
+
+    async def authenticate(self, username: str, password: str) -> UserRecord | None:
+        return await run_in_threadpool(self._authenticate_sync, username, password)
 
 
 class AuthService:

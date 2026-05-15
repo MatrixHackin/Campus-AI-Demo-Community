@@ -31,21 +31,3 @@ export async function login(payload) {
 export async function getCurrentUser() {
   return request('/auth/me')
 }
-
-export async function createSandbox(token, payload = {}) {
-  return request('/sandboxes', {
-    method: 'POST',
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: JSON.stringify(payload)
-  })
-}
-
-export async function getMySandboxes(token) {
-  return request('/sandboxes/me', {
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    }
-  })
-}

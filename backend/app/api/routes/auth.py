@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_auth_service, get_sso_service, get_sso_user_repository, get_token_store, settings
 from app.schemas.auth import LoginRequest, LoginResponse
@@ -8,7 +9,8 @@ from app.services.sso_service import SSOService, generate_code_challenge, genera
 from app.services.sso_user_service import SSOUserProfile, SSOUserRepository
 from app.services.token_store import TokenStore
 
-router = APIRouter(prefix='/auth', tags=['auth'])
+api_router = APIRouter(prefix='/auth', tags=['auth'])
+browser_router = APIRouter(prefix='/auth', tags=['auth'])
 callback_router = APIRouter(tags=['sso'])
 
 
@@ -33,7 +35,7 @@ def clear_session_cookie(response: Response) -> None:
     )
 
 
-@router.post('/login', response_model=LoginResponse)
+@api_router.post('/login', response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
     response: Response,
@@ -44,7 +46,7 @@ async def login(
     return result
 
 
-@router.get('/me')
+@api_router.get('/me')
 async def me(
     session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
     token_store: TokenStore = Depends(get_token_store),
@@ -70,7 +72,7 @@ async def me(
     }
 
 
-@router.get('/sso/login')
+@browser_router.get('/sso/login')
 async def sso_login(
     token_store: TokenStore = Depends(get_token_store),
     sso_service: SSOService = Depends(get_sso_service),
@@ -87,7 +89,7 @@ async def sso_login(
     return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
 
 
-@router.api_route('/logout', methods=['GET', 'POST'])
+@browser_router.api_route('/logout', methods=['GET', 'POST'])
 async def logout(
     session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
     token_store: TokenStore = Depends(get_token_store),
@@ -125,13 +127,17 @@ async def signin_oidc(
     if not oauth_state:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='登录状态无效，请重新登录')
 
-    token_response = sso_service.exchange_code_for_token(code=code, code_verifier=oauth_state.code_verifier)
+    token_response = await run_in_threadpool(
+        sso_service.exchange_code_for_token,
+        code=code,
+        code_verifier=oauth_state.code_verifier,
+    )
     access_token = token_response.get('access_token')
     id_token = token_response.get('id_token')
     if not access_token:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='登录失败，请重新登录')
 
-    userinfo = sso_service.get_userinfo(access_token)
+    userinfo = await run_in_threadpool(sso_service.get_userinfo, access_token)
     sub = userinfo.get('sub')
     if not sub:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail='登录失败，请重新登录')
@@ -147,7 +153,7 @@ async def signin_oidc(
         department=userinfo.get('department'),
         emp_id=userinfo.get('emp_id'),
     )
-    local_user_id = sso_user_repository.upsert_login(sso_profile)
+    local_user_id = await run_in_threadpool(sso_user_repository.upsert_login, sso_profile)
     local_session = token_store.issue_token(
         user_id=f'sso:{sub}',
         username=username,

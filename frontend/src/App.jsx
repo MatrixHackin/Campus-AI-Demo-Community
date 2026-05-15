@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
-import WorkspacePage from './pages/WorkspacePage'
+import DashboardPage from './pages/DashboardPage'
 import CommunityPage from './pages/CommunityPage'
 import MyAppsPage from './pages/MyAppsPage'
 import DeveloperManualPage from './pages/DeveloperManualPage'
@@ -16,7 +16,7 @@ export default function App() {
         path="/dashboard"
         element={
           <ProtectedRoute>
-            <WorkspacePage />
+            <DashboardPage />
           </ProtectedRoute>
         }
       />

@@ -2,18 +2,9 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { getCurrentUser, login as loginApi } from '../api/client'
 
 const AuthContext = createContext(null)
-const STORAGE_KEY = 'campus-ai-auth'
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      return raw ? JSON.parse(raw) : null
-    } catch {
-      localStorage.removeItem(STORAGE_KEY)
-      return null
-    }
-  })
+  const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -23,15 +14,14 @@ export function AuthProvider({ children }) {
       try {
         const result = await getCurrentUser()
         if (!ignore) {
-          setSession((current) => ({
-            token: current?.token || null,
+          setSession({
             user: result.user,
             expiresAt: result.expires_at,
             authProvider: result.auth_provider
-          }))
+          })
         }
       } catch {
-        if (!ignore && !session?.token) {
+        if (!ignore) {
           setSession(null)
         }
       } finally {
@@ -46,23 +36,20 @@ export function AuthProvider({ children }) {
       ignore = true
     }
     // only run once on app startup
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const login = async (credentials) => {
     const result = await loginApi(credentials)
     const nextSession = {
-      token: result.access_token,
       user: result.user,
-      expiresAt: result.expires_at
+      expiresAt: result.expires_at,
+      authProvider: result.auth_provider || 'local'
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextSession))
     setSession(nextSession)
     return result
   }
 
   const logout = () => {
-    localStorage.removeItem(STORAGE_KEY)
     setSession(null)
     window.location.href = '/auth/logout'
   }
@@ -71,9 +58,8 @@ export function AuthProvider({ children }) {
     () => ({
       session,
       user: session?.user || null,
-      token: session?.token || null,
       isLoading: loading,
-      isAuthenticated: Boolean(session?.token || session?.user),
+      isAuthenticated: Boolean(session?.user),
       login,
       logout
     }),
