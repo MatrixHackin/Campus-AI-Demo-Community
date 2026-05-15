@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import WorkspacePage from './pages/WorkspacePage'
 import CommunityPage from './pages/CommunityPage'
 import MyAppsPage from './pages/MyAppsPage'
+import DeveloperManualPage from './pages/DeveloperManualPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -32,6 +33,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <MyAppsPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/manual"
+        element={
+          <ProtectedRoute>
+            <DeveloperManualPage />
           </ProtectedRoute>
         }
       />
