@@ -137,6 +137,10 @@ class AuthService:
             username=user.username,
             display_name=user.display_name,
             auth_provider='local',
+            user_type=user.user_type,
+            email=user.email,
+            department=user.department,
+            emp_id=user.emp_id,
         )
         return {
             'access_token': session.token,
@@ -146,5 +150,10 @@ class AuthService:
                 'id': user.user_id,
                 'username': user.username,
                 'display_name': user.display_name,
+                'local_user_id': session.local_user_id,
+                'type': user.user_type,
+                'email': user.email,
+                'department': user.department,
+                'emp_id': user.emp_id,
             },
         }

@@ -10,6 +10,11 @@ class LoginUser(BaseModel):
     id: str
     username: str
     display_name: str
+    local_user_id: int | None = None
+    type: str | None = None
+    email: str | None = None
+    department: str | None = None
+    emp_id: str | None = None
 
 
 class LoginResponse(BaseModel):

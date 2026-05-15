@@ -13,6 +13,27 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uk_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS sso_users (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  auth_provider VARCHAR(32) NOT NULL DEFAULT 'sso',
+  provider_subject VARCHAR(128) NOT NULL,
+  username VARCHAR(128) NOT NULL,
+  display_name VARCHAR(128) NOT NULL,
+  user_type VARCHAR(32) NULL COMMENT 'staff, student, project 等 SSO 账号类型',
+  email VARCHAR(255) NULL,
+  department VARCHAR(128) NULL,
+  emp_id VARCHAR(128) NULL,
+  last_login_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_sso_users_provider_subject (auth_provider, provider_subject),
+  KEY idx_sso_users_username (username),
+  KEY idx_sso_users_email (email),
+  KEY idx_sso_users_emp_id (emp_id),
+  KEY idx_sso_users_last_login_at (last_login_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS containers (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   pod_name VARCHAR(255) NOT NULL,

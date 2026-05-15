@@ -7,6 +7,10 @@ class UserRecord:
     user_id: str
     username: str
     display_name: str
+    user_type: str | None = None
+    email: str | None = None
+    department: str | None = None
+    emp_id: str | None = None
 
 
 class AuthRepository(ABC):

@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     sso_redirect_uri: str = 'https://localhost:8080/signin-oidc'
     sso_post_logout_redirect_uri: str = 'https://localhost:8080/signout-callback'
     sso_scope: str = 'openid profile'
+    sso_user_persistence_enabled: bool = True
+    sso_user_table: str = 'sso_users'
 
     # Kubernetes / K3s
     kubernetes_namespace: str = 'campus-sandbox'

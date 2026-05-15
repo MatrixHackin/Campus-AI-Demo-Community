@@ -60,6 +60,8 @@ SSO_CLIENT_SECRET=你的 client secret
 SSO_REDIRECT_URI=https://localhost:8080/signin-oidc
 SSO_POST_LOGOUT_REDIRECT_URI=https://localhost:8080/signout-callback
 SSO_SCOPE=openid profile
+SSO_USER_PERSISTENCE_ENABLED=true
+SSO_USER_TABLE=sso_users
 SESSION_COOKIE_SECURE=true
 SESSION_COOKIE_SAMESITE=lax
 ```
@@ -72,6 +74,10 @@ SSO 相关路由：
 - `GET /signout-callback`
 
 SSO token 只保存在后端内存会话中，前端通过 HttpOnly Cookie 维持本地登录态。
+
+SSO 登录成功后，后端会将 SSO 返回的用户画像 upsert 到 `sso_users` 表，保存外部身份
+`sub` 与本地业务用户的映射，以及 `name/display_name/type/email/department/emp_id`
+等业务字段；不会保存用户密码。若 MySQL 不可用或未初始化该表，登录不会被阻断，但后端会记录 warning。
 
 ## 开发沙盒接口
 - `POST /api/v1/sandboxes`

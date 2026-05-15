@@ -13,7 +13,12 @@ class SessionRecord:
     username: str
     display_name: str
     expires_at: datetime
+    local_user_id: int | None = None
     auth_provider: str = 'local'
+    user_type: str | None = None
+    email: str | None = None
+    department: str | None = None
+    emp_id: str | None = None
     id_token: str | None = None
     access_token: str | None = None
 
@@ -37,7 +42,12 @@ class TokenStore:
         user_id: str,
         username: str,
         display_name: str,
+        local_user_id: int | None = None,
         auth_provider: str = 'local',
+        user_type: str | None = None,
+        email: str | None = None,
+        department: str | None = None,
+        emp_id: str | None = None,
         id_token: str | None = None,
         access_token: str | None = None,
     ) -> SessionRecord:
@@ -49,7 +59,12 @@ class TokenStore:
             username=username,
             display_name=display_name,
             expires_at=expires_at,
+            local_user_id=local_user_id,
             auth_provider=auth_provider,
+            user_type=user_type,
+            email=email,
+            department=department,
+            emp_id=emp_id,
             id_token=id_token,
             access_token=access_token,
         )

@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 
-from app.api.deps import get_auth_service, get_sso_service, get_token_store, settings
+from app.api.deps import get_auth_service, get_sso_service, get_sso_user_repository, get_token_store, settings
 from app.schemas.auth import LoginRequest, LoginResponse
 from app.services.auth_service import AuthService
 from app.services.sso_service import SSOService, generate_code_challenge, generate_code_verifier
+from app.services.sso_user_service import SSOUserProfile, SSOUserRepository
 from app.services.token_store import TokenStore
 
 router = APIRouter(prefix='/auth', tags=['auth'])
@@ -58,6 +59,11 @@ async def me(
             'id': session.user_id,
             'username': session.username,
             'display_name': session.display_name,
+            'local_user_id': session.local_user_id,
+            'type': session.user_type,
+            'email': session.email,
+            'department': session.department,
+            'emp_id': session.emp_id,
         },
         'auth_provider': session.auth_provider,
         'expires_at': session.expires_at.isoformat(),
@@ -108,6 +114,7 @@ async def signin_oidc(
     state: str | None = None,
     token_store: TokenStore = Depends(get_token_store),
     sso_service: SSOService = Depends(get_sso_service),
+    sso_user_repository: SSOUserRepository = Depends(get_sso_user_repository),
 ):
     if not code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='登录失败，请重新登录')
@@ -131,11 +138,26 @@ async def signin_oidc(
 
     username = userinfo.get('name') or sub
     display_name = userinfo.get('display_name') or username
+    sso_profile = SSOUserProfile(
+        sub=sub,
+        username=username,
+        display_name=display_name,
+        user_type=userinfo.get('type'),
+        email=userinfo.get('email'),
+        department=userinfo.get('department'),
+        emp_id=userinfo.get('emp_id'),
+    )
+    local_user_id = sso_user_repository.upsert_login(sso_profile)
     local_session = token_store.issue_token(
         user_id=f'sso:{sub}',
         username=username,
         display_name=display_name,
+        local_user_id=local_user_id,
         auth_provider='sso',
+        user_type=sso_profile.user_type,
+        email=sso_profile.email,
+        department=sso_profile.department,
+        emp_id=sso_profile.emp_id,
         id_token=id_token,
         access_token=access_token,
     )
