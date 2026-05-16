@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     demo_username: str = 'admin'
     demo_password: str = 'admin123'
     demo_display_name: str = 'Campus Admin'
+    demo_emp_id: str | None = None
     token_ttl_hours: int = 12
 
     mysql_host: str = '127.0.0.1'
@@ -60,9 +61,14 @@ class Settings(BaseSettings):
     harbor_public_project: str = 'dev'
     harbor_request_timeout_seconds: int = 10
 
-    k3s_namespace_sync_enabled: bool = True
     kubeconfig_path: str | None = None
     k3s_config_path: str = '/etc/rancher/k3s/k3s.yaml'
+    k3s_devbox_image: str = 'gpunion2.io/dev/devbox:latest'
+    k3s_devbox_cpu: str = '2'
+    k3s_devbox_memory: str = '4Gi'
+    k3s_devbox_command: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['/bin/sh', '-c', 'sleep infinity']
+    )
 
     @field_validator('cors_origins', mode='before')
     @classmethod
@@ -85,6 +91,13 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             value = value.strip()
             return value.rstrip('/') + '/' if value else ''
+        return value
+
+    @field_validator('k3s_devbox_command', mode='before')
+    @classmethod
+    def parse_k3s_devbox_command(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(',') if item.strip()]
         return value
 
 

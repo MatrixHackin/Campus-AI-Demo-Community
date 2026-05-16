@@ -3,7 +3,7 @@
 ## 功能
 - 登录接口（支持 demo 模式，保留自定义数据库接口扩展点）
 - 校园 SSO 登录
-- 当前工作台页面暂为空，后续通过创建 container 的方式重新实现工作台能力
+- 工作台支持 Harbor 镜像展示与默认 devbox 容器申请
 
 ## 启动
 ```bash
@@ -110,12 +110,13 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 - `GET /api/v1/harbor/me`：查询当前登录用户邮箱对应的 Harbor 私有项目，以及配置的公有镜像项目。
 
-## K3s Namespace 同步
+## K3s Namespace 与开发容器
 
-当前只对接 K3s 的 namespace 创建能力，不实现 Pod / Service / PVC / NodePort 等其他服务。
+当前已对接 K3s 的 namespace 创建与默认 devbox Pod 申请能力；暂不实现 Kubernetes Service、
+PVC、NodePort、删除容器等其他服务。
 
-SSO 登录成功并将用户 upsert 到 `sso_users` 后，后端会使用 SSO 返回的 `emp_id`
-确保存在对应 namespace：
+后端不会在 SSO 登录/注册时创建 namespace。用户在工作台点击“申请容器”时，后端才会使用当前
+登录用户的 `emp_id` 确保存在对应 namespace：
 
 ```text
 emp_id = 20260001 -> namespace = 20260001
@@ -132,16 +133,27 @@ backend/sql/add_unique_sso_emp_id.sql
 K3s 连接配置：
 
 ```env
-K3S_NAMESPACE_SYNC_ENABLED=true
 KUBECONFIG_PATH=
 K3S_CONFIG_PATH=/etc/rancher/k3s/k3s.yaml
+K3S_DEVBOX_IMAGE=gpunion2.io/dev/devbox:latest
+K3S_DEVBOX_CPU=2
+K3S_DEVBOX_MEMORY=4Gi
+K3S_DEVBOX_COMMAND=/bin/sh,-c,sleep infinity
 ```
+
+接口：
+
+- `POST /api/v1/k3s/devbox`：在当前登录用户 `emp_id` 对应的 namespace 下创建默认 devbox Pod。
+- `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
 
 说明：
 
-- namespace 创建失败时只记录 warning，不阻断 SSO 登录。
+- SSO 登录只负责认证和用户画像落库，不再创建 K3s namespace。
 - 如果 namespace 已存在，会直接复用。
-- 当前不会创建任何容器、Kubernetes Service 或端口暴露。
+- 工作台“申请容器”按钮会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod。
+- 默认 devbox Pod 资源 request/limit 均为 2 核 CPU、4Gi 内存，镜像默认使用 `gpunion2.io/dev/devbox:latest`。
+- 当前不会创建 Kubernetes Service、PVC 或端口暴露。
+- demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。
 
 ## 已知限制与后续优化
 

@@ -36,3 +36,13 @@ export async function getMyHarborImages({ includeTags = false } = {}) {
   const query = includeTags ? '?include_tags=true' : ''
   return request(`/harbor/me${query}`)
 }
+
+export async function createDevboxContainer() {
+  return request('/k3s/devbox', {
+    method: 'POST'
+  })
+}
+
+export async function getMyContainers() {
+  return request('/k3s/containers')
+}

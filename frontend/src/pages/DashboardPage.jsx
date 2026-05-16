@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getMyHarborImages } from '../api/client'
+import { createDevboxContainer, getMyContainers, getMyHarborImages } from '../api/client'
 import AppShell from '../components/AppShell'
 
 function formatDateTime(value) {
@@ -21,6 +21,25 @@ function formatDateTime(value) {
 
 function imageShortName(repo) {
   return repo?.name || '未命名镜像'
+}
+
+function imageNameFromRef(image) {
+  if (!image) return '镜像'
+  const withoutDigest = image.split('@')[0]
+  const lastPart = withoutDigest.split('/').pop() || withoutDigest
+  return lastPart.split(':')[0] || '镜像'
+}
+
+function statusText(status) {
+  const statusMap = {
+    Running: '运行中',
+    Pending: '创建中',
+    Succeeded: '已完成',
+    Failed: '失败',
+    Terminating: '删除中',
+    Unknown: '未知'
+  }
+  return statusMap[status] || status || '未知'
 }
 
 function ImageList({ title, project, message, loading, limit, variant = 'private' }) {
@@ -62,10 +81,47 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
   )
 }
 
+function ContainerList({ containers, loading }) {
+  if (loading) {
+    return <div className="muted-card">正在加载容器…</div>
+  }
+
+  if (!containers.length) {
+    return <div className="muted-card">暂无容器。</div>
+  }
+
+  return (
+    <div className="container-list" aria-label="我的容器">
+      {containers.map((container) => {
+        const imageName = imageNameFromRef(container.image)
+        return (
+          <div className="container-row" key={container.name}>
+            <span className="container-row__image" title={container.image || imageName} aria-hidden="true">
+              <span>{imageName.slice(0, 1).toUpperCase()}</span>
+            </span>
+            <div className="container-row__main">
+              <strong>{container.name}</strong>
+              <span className={`container-status container-status--${container.status?.toLowerCase() || 'unknown'}`}>
+                {statusText(container.status)}
+              </span>
+            </div>
+            <div className="container-row__actions" aria-hidden="true" />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const [harborInfo, setHarborInfo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [containersInfo, setContainersInfo] = useState({ containers: [] })
+  const [containersLoading, setContainersLoading] = useState(true)
+  const [containersError, setContainersError] = useState('')
+  const [creatingContainer, setCreatingContainer] = useState(false)
+  const [containerError, setContainerError] = useState('')
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -80,9 +136,36 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const loadContainers = useCallback(async () => {
+    setContainersLoading(true)
+    setContainersError('')
+    try {
+      const result = await getMyContainers()
+      setContainersInfo(result)
+    } catch (err) {
+      setContainersError(err.message)
+    } finally {
+      setContainersLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadHarborImages()
-  }, [loadHarborImages])
+    loadContainers()
+  }, [loadHarborImages, loadContainers])
+
+  const handleCreateContainer = useCallback(async () => {
+    setCreatingContainer(true)
+    setContainerError('')
+    try {
+      await createDevboxContainer()
+      await loadContainers()
+    } catch (err) {
+      setContainerError(err.message)
+    } finally {
+      setCreatingContainer(false)
+    }
+  }, [loadContainers])
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
@@ -98,8 +181,21 @@ export default function DashboardPage() {
         <section className="content-panel container-request-panel" aria-labelledby="container-request-title">
           <div className="dashboard-panel-heading">
             <h1 id="container-request-title">容器申请</h1>
-            <p>这里预留给后续创建 container 的申请表单。</p>
+            <button
+              className="btn btn--primary"
+              type="button"
+              onClick={handleCreateContainer}
+              disabled={creatingContainer}
+            >
+              {creatingContainer ? '申请中…' : '申请容器'}
+            </button>
           </div>
+
+          {containerError ? <div className="feedback feedback--error">{containerError}</div> : null}
+          {containersError ? <div className="feedback feedback--error">{containersError}</div> : null}
+          {!containersError ? (
+            <ContainerList containers={containersInfo?.containers || []} loading={containersLoading} />
+          ) : null}
         </section>
 
         <aside className="image-repository-panel" aria-label="镜像仓库">
@@ -107,7 +203,7 @@ export default function DashboardPage() {
             <div>
               <h1>镜像仓库</h1>
             </div>
-            <button className="btn btn--secondary" type="button" onClick={loadHarborImages} disabled={loading}>
+            <button className="btn btn--primary" type="button" onClick={loadHarborImages} disabled={loading}>
               {loading ? '刷新中' : '刷新'}
             </button>
           </div>

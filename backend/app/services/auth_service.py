@@ -21,6 +21,7 @@ class DemoAuthRepository(AuthRepository):
                 user_id='demo-user-001',
                 username=username,
                 display_name=self.settings.demo_display_name,
+                emp_id=self.settings.demo_emp_id,
             )
         return None
 
