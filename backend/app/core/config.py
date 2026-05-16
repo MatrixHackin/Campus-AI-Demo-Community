@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     sso_user_persistence_enabled: bool = True
     sso_user_table: str = 'sso_users'
 
+    harbor_url: str = ''
+    harbor_registry: str = 'gpunion2.io'
+    harbor_admin_username: str = ''
+    harbor_admin_password: str = ''
+    harbor_user_project_suffix: str = '-repo'
+    harbor_public_project: str = 'dev'
+    harbor_request_timeout_seconds: int = 10
+
     @field_validator('cors_origins', mode='before')
     @classmethod
     def parse_cors_origins(cls, value):
@@ -65,6 +73,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             value = value.strip()
             return value or None
+        return value
+
+    @field_validator('harbor_url', mode='before')
+    @classmethod
+    def normalize_harbor_url(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value.rstrip('/') + '/' if value else ''
         return value
 
 

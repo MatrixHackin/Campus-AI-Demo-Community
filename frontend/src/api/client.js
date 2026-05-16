@@ -31,3 +31,8 @@ export async function login(payload) {
 export async function getCurrentUser() {
   return request('/auth/me')
 }
+
+export async function getMyHarborImages({ includeTags = false } = {}) {
+  const query = includeTags ? '?include_tags=true' : ''
+  return request(`/harbor/me${query}`)
+}

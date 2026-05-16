@@ -79,6 +79,37 @@ SSO 登录成功后，后端会将 SSO 返回的用户画像 upsert 到 `sso_use
 `sub` 与本地业务用户的映射，以及 `name/display_name/type/email/department/emp_id`
 等业务字段；不会保存用户密码。若 MySQL 不可用或未初始化该表，登录不会被阻断，但后端会记录 warning。
 
+## Harbor 镜像仓库
+
+当前已接入 Harbor 只读查询，用于“工作台”右侧展示镜像：
+
+- “我的镜像”：当前登录用户邮箱对应的私有项目。
+- “公有镜像”：`HARBOR_PUBLIC_PROJECT` 指向的 Harbor 项目，当前默认 `dev`。
+
+第一版约束：
+
+- Harbor 用户名继续使用 SSO 用户邮箱。
+- 私有项目名按邮箱转换：`user@example.com` -> `user-at-example-dot-com-repo`。
+- 不在 SSO 登录时自动创建 Harbor 用户或项目。
+- 不开放镜像删除接口。
+- 公共镜像项目通过 `HARBOR_PUBLIC_PROJECT` 配置，后续可改为本项目专用公共镜像项目。
+
+需要在 `.env` 中配置：
+
+```env
+HARBOR_URL=http://10.120.17.137:5053/api/v2.0/
+HARBOR_REGISTRY=gpunion2.io
+HARBOR_ADMIN_USERNAME=你的 Harbor 管理员账号
+HARBOR_ADMIN_PASSWORD=你的 Harbor 管理员密码
+HARBOR_USER_PROJECT_SUFFIX=-repo
+HARBOR_PUBLIC_PROJECT=dev
+HARBOR_REQUEST_TIMEOUT_SECONDS=10
+```
+
+接口：
+
+- `GET /api/v1/harbor/me`：查询当前登录用户邮箱对应的 Harbor 私有项目，以及配置的公有镜像项目。
+
 ## 已知限制与后续优化
 
 - 当前后端登录 session 仍由单进程内存 `TokenStore` 保存，适合当前单实例部署；后续如果启用多进程、
