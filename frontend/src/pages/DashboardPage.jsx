@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { createDevboxContainer, getMyContainers, getMyHarborImages } from '../api/client'
+import { checkAppName, createDevboxContainer, getMyContainers, getMyHarborImages } from '../api/client'
 import AppShell from '../components/AppShell'
+
+const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 
 function formatDateTime(value) {
   if (!value) return '未知'
@@ -113,6 +115,77 @@ function ContainerList({ containers, loading }) {
   )
 }
 
+function ContainerApplyModal({
+  appName,
+  appNameCheck,
+  connectionPassword,
+  error,
+  submitting,
+  onAppNameChange,
+  onConnectionPasswordChange,
+  onClose,
+  onSubmit
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="container-apply-title">
+        <div className="modal-card__header">
+          <div>
+            <h2 id="container-apply-title">申请容器</h2>
+            <p>填写应用名称后，将创建 devbox 并暴露 3000 端口服务。</p>
+          </div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label="关闭" disabled={submitting}>
+            ×
+          </button>
+        </div>
+
+        <form className="modal-form" onSubmit={onSubmit}>
+          <label>
+            <span>app_name</span>
+            <input
+              type="text"
+              value={appName}
+              onChange={(event) => onAppNameChange(event.target.value)}
+              placeholder="例如 demo-app"
+              autoComplete="off"
+              maxLength={40}
+              disabled={submitting}
+            />
+            <small>仅允许小写字母、数字和中划线；访问路径为 /apps/app_name。</small>
+          </label>
+
+          <label>
+            <span>连接密码</span>
+            <input
+              type="password"
+              value={connectionPassword}
+              onChange={(event) => onConnectionPasswordChange(event.target.value)}
+              placeholder="至少 6 位，后续用于 SSH 连接"
+              autoComplete="new-password"
+              minLength={6}
+              disabled={submitting}
+            />
+          </label>
+
+          {appNameCheck?.available ? (
+            <div className="feedback feedback--success">应用名称可用：{appNameCheck.url}</div>
+          ) : null}
+          {error ? <div className="feedback feedback--error">{error}</div> : null}
+
+          <div className="modal-actions">
+            <button className="btn btn--ghost" type="button" onClick={onClose} disabled={submitting}>
+              取消
+            </button>
+            <button className="btn btn--primary" type="submit" disabled={submitting}>
+              {submitting ? '申请中…' : '确认申请'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const [harborInfo, setHarborInfo] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -122,6 +195,11 @@ export default function DashboardPage() {
   const [containersError, setContainersError] = useState('')
   const [creatingContainer, setCreatingContainer] = useState(false)
   const [containerError, setContainerError] = useState('')
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
+  const [appName, setAppName] = useState('')
+  const [connectionPassword, setConnectionPassword] = useState('')
+  const [appNameCheck, setAppNameCheck] = useState(null)
+  const [applyFormError, setApplyFormError] = useState('')
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -154,18 +232,66 @@ export default function DashboardPage() {
     loadContainers()
   }, [loadHarborImages, loadContainers])
 
-  const handleCreateContainer = useCallback(async () => {
+  const resetApplyForm = useCallback(() => {
+    setAppName('')
+    setConnectionPassword('')
+    setAppNameCheck(null)
+    setApplyFormError('')
+  }, [])
+
+  const handleOpenApplyModal = useCallback(() => {
+    setContainerError('')
+    resetApplyForm()
+    setIsApplyModalOpen(true)
+  }, [resetApplyForm])
+
+  const handleCloseApplyModal = useCallback(() => {
+    if (creatingContainer) return
+    setIsApplyModalOpen(false)
+    resetApplyForm()
+  }, [creatingContainer, resetApplyForm])
+
+  const handleAppNameChange = useCallback((value) => {
+    setAppName(value.trim().toLowerCase())
+    setAppNameCheck(null)
+    setApplyFormError('')
+  }, [])
+
+  const handleCreateContainer = useCallback(async (event) => {
+    event.preventDefault()
+    const normalizedAppName = appName.trim().toLowerCase()
+    if (!APP_NAME_PATTERN.test(normalizedAppName)) {
+      setApplyFormError('app_name 只允许小写字母、数字和中划线，且必须以字母或数字开头结尾')
+      return
+    }
+    if (connectionPassword.trim().length < 6) {
+      setApplyFormError('连接密码至少需要 6 位')
+      return
+    }
+
     setCreatingContainer(true)
     setContainerError('')
+    setApplyFormError('')
     try {
-      await createDevboxContainer()
+      const availability = await checkAppName(normalizedAppName)
+      setAppNameCheck(availability)
+      if (!availability.available) {
+        setApplyFormError(availability.message || '该应用名称已被使用')
+        return
+      }
+      await createDevboxContainer({
+        app_name: normalizedAppName,
+        connection_password: connectionPassword
+      })
       await loadContainers()
+      setIsApplyModalOpen(false)
+      resetApplyForm()
     } catch (err) {
-      setContainerError(err.message)
+      setApplyFormError(err.message)
     } finally {
       setCreatingContainer(false)
     }
-  }, [loadContainers])
+  }, [appName, connectionPassword, loadContainers, resetApplyForm])
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
@@ -184,7 +310,7 @@ export default function DashboardPage() {
             <button
               className="btn btn--primary"
               type="button"
-              onClick={handleCreateContainer}
+              onClick={handleOpenApplyModal}
               disabled={creatingContainer}
             >
               {creatingContainer ? '申请中…' : '申请容器'}
@@ -232,6 +358,20 @@ export default function DashboardPage() {
           ) : null}
         </aside>
       </div>
+
+      {isApplyModalOpen ? (
+        <ContainerApplyModal
+          appName={appName}
+          appNameCheck={appNameCheck}
+          connectionPassword={connectionPassword}
+          error={applyFormError}
+          submitting={creatingContainer}
+          onAppNameChange={handleAppNameChange}
+          onConnectionPasswordChange={setConnectionPassword}
+          onClose={handleCloseApplyModal}
+          onSubmit={handleCreateContainer}
+        />
+      ) : null}
     </AppShell>
   )
 }

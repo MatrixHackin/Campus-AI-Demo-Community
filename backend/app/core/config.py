@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     k3s_devbox_command: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: ['/bin/sh', '-c', 'sleep infinity']
     )
+    k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
+    k3s_apps_path_prefix: str = '/apps'
+    k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'
 
     @field_validator('cors_origins', mode='before')
     @classmethod
@@ -98,6 +101,13 @@ class Settings(BaseSettings):
     def parse_k3s_devbox_command(cls, value):
         if isinstance(value, str):
             return [item.strip() for item in value.split(',') if item.strip()]
+        return value
+
+    @field_validator('k3s_apps_path_prefix', 'k3s_apps_public_base_url', mode='before')
+    @classmethod
+    def normalize_k3s_apps_paths(cls, value):
+        if isinstance(value, str):
+            return value.strip().rstrip('/') or value
         return value
 
 

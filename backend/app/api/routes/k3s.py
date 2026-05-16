@@ -2,7 +2,12 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_k3s_service, get_token_store, settings
-from app.schemas.k3s import ContainerListResponse, DevboxCreateResponse
+from app.schemas.k3s import (
+    AppNameAvailabilityResponse,
+    ContainerListResponse,
+    DevboxCreateRequest,
+    DevboxCreateResponse,
+)
 from app.services.k3s_service import K3SService
 from app.services.token_store import SessionRecord, TokenStore
 
@@ -26,11 +31,36 @@ def get_current_session(
 
 @router.post('/devbox', response_model=DevboxCreateResponse)
 async def create_devbox_container(
+    payload: DevboxCreateRequest,
     current_session: SessionRecord = Depends(get_current_session),
     k3s_service: K3SService = Depends(get_k3s_service),
 ):
     try:
-        return await run_in_threadpool(k3s_service.create_devbox_container, current_session.emp_id)
+        return await run_in_threadpool(
+            k3s_service.create_devbox_container,
+            current_session.emp_id,
+            current_session.username,
+            payload.app_name,
+            payload.connection_password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get('/apps/check-name', response_model=AppNameAvailabilityResponse)
+async def check_app_name_availability(
+    app_name: str,
+    _current_session: SessionRecord = Depends(get_current_session),
+    k3s_service: K3SService = Depends(get_k3s_service),
+):
+    try:
+        return await run_in_threadpool(k3s_service.check_app_name_availability, app_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

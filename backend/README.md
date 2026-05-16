@@ -112,8 +112,8 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 ## K3s Namespace 与开发容器
 
-当前已对接 K3s 的 namespace 创建与默认 devbox Pod 申请能力；暂不实现 Kubernetes Service、
-PVC、NodePort、删除容器等其他服务。
+当前已对接 K3s 的 namespace 创建、默认 devbox Pod 申请，以及基于 Traefik Ingress 的
+HTTP 应用暴露能力；暂不实现 PVC、删除容器等其他服务。
 
 后端不会在 SSO 登录/注册时创建 namespace。用户在工作台点击“申请容器”时，后端才会使用当前
 登录用户的 `emp_id` 确保存在对应 namespace：
@@ -130,6 +130,13 @@ emp_id = ABC_001 -> namespace = abc-001
 backend/sql/add_unique_sso_emp_id.sql
 ```
 
+应用名称 `app_name` 会写入 `containers.app_name`，并通过唯一索引保证全局唯一。对于已有数据库，
+请执行：
+
+```text
+backend/sql/add_unique_containers_app_name.sql
+```
+
 K3s 连接配置：
 
 ```env
@@ -139,20 +146,42 @@ K3S_DEVBOX_IMAGE=gpunion2.io/dev/devbox:latest
 K3S_DEVBOX_CPU=2
 K3S_DEVBOX_MEMORY=4Gi
 K3S_DEVBOX_COMMAND=/bin/sh,-c,sleep infinity
+K3S_APPS_HOST=gpunion.hkust-gz.edu.cn
+K3S_APPS_PATH_PREFIX=/apps
+K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
 ```
 
 接口：
 
+- `GET /api/v1/k3s/apps/check-name?app_name=demo`：检查应用名称是否已被使用；应用名称以
+  `containers.app_name` 唯一索引作为全局唯一来源，对应访问路径为
+  `K3S_APPS_PUBLIC_BASE_URL/{app_name}`。
 - `POST /api/v1/k3s/devbox`：在当前登录用户 `emp_id` 对应的 namespace 下创建默认 devbox Pod。
+  请求体：
+
+  ```json
+  {
+    "app_name": "demo",
+    "connection_password": "至少 6 位连接密码"
+  }
+  ```
+
 - `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
 
 说明：
 
 - SSO 登录只负责认证和用户画像落库，不再创建 K3s namespace。
 - 如果 namespace 已存在，会直接复用。
-- 工作台“申请容器”按钮会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod。
+- 工作台“申请容器”按钮会先要求填写 `app_name` 和连接密码；后端会再次校验 `app_name` 未被使用。
+- 申请容器时会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod、一个
+  ClusterIP Service、一个 Traefik Ingress，并将容器内 3000 端口应用暴露为
+  `https://gpunion.hkust-gz.edu.cn/apps/{app_name}`。
+- 申请成功时会向 `containers` 表写入 `pod_name`、`app_name`、`username` 和连接密码；其中
+  `app_name` 使用唯一索引避免并发申请时重名。
 - 默认 devbox Pod 资源 request/limit 均为 2 核 CPU、4Gi 内存，镜像默认使用 `gpunion2.io/dev/devbox:latest`。
-- 当前不会创建 Kubernetes Service、PVC 或端口暴露。
+- 连接密码会先保存为 Kubernetes Secret，后续用于 SSH 连接；当前不会启用 SSH。
+- 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
+  base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
 - demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。
 
 ## 已知限制与后续优化

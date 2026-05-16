@@ -2,6 +2,77 @@
 
 本手册按使用方式分类，每类只保留一种在国内较容易落地的方案。修改本文件后，请重新构建/重启前端应用。
 
+## 平台应用访问路径规范
+
+平台后续会将用户容器中的 Web 服务按下面的路径开放：
+
+```text
+https://gpunion.hkust-gz.edu.cn/apps/{app_name}/
+```
+
+因此，应用必须满足以下二选一要求：
+
+### 推荐：使用平台模板
+
+优先使用平台提供的前端/全栈应用模板。模板会预留应用访问前缀配置，避免静态资源路径错误。
+
+### 自行开发：配置 Base Path
+
+如果自行创建 Next.js、Vite、React、Vue 等前端应用，需要把应用的 Base Path 配置为：
+
+```text
+/apps/{app_name}
+```
+
+例如应用名为 `demo`，访问地址是：
+
+```text
+https://gpunion.hkust-gz.edu.cn/apps/demo/
+```
+
+则应用 Base Path 应设置为：
+
+```text
+/apps/demo
+```
+
+如果不配置 Base Path，页面 HTML 可能可以打开，但静态资源会请求到根路径，例如：
+
+```text
+/_next/static/...
+/assets/...
+```
+
+这些请求不会进入当前应用路径，可能导致页面样式、脚本或路由加载失败。
+
+### Next.js 示例
+
+`next.config.js`：
+
+```js
+const nextConfig = {
+  basePath: '/apps/demo',
+  assetPrefix: '/apps/demo',
+}
+
+module.exports = nextConfig
+```
+
+`next.config.mjs`：
+
+```js
+const nextConfig = {
+  basePath: '/apps/demo',
+  assetPrefix: '/apps/demo',
+}
+
+export default nextConfig
+```
+
+修改后需要重新构建或重启应用。
+
+---
+
 ## 方式一：AI IDE - Trae
 
 适合希望开箱即用、不想先配置 API 的用户。

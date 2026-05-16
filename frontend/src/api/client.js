@@ -37,12 +37,18 @@ export async function getMyHarborImages({ includeTags = false } = {}) {
   return request(`/harbor/me${query}`)
 }
 
-export async function createDevboxContainer() {
+export async function createDevboxContainer(payload) {
   return request('/k3s/devbox', {
-    method: 'POST'
+    method: 'POST',
+    body: JSON.stringify(payload)
   })
 }
 
 export async function getMyContainers() {
   return request('/k3s/containers')
+}
+
+export async function checkAppName(appName) {
+  const query = new URLSearchParams({ app_name: appName }).toString()
+  return request(`/k3s/apps/check-name?${query}`)
 }

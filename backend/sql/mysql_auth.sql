@@ -39,10 +39,12 @@ CREATE TABLE IF NOT EXISTS sso_users (
 CREATE TABLE IF NOT EXISTS containers (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   pod_name VARCHAR(255) NOT NULL,
+  app_name VARCHAR(64) NOT NULL,
   username VARCHAR(255) NOT NULL,
   password VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_containers_pod_name (pod_name),
+  UNIQUE KEY uk_containers_app_name (app_name),
   KEY idx_containers_pod_name (pod_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
