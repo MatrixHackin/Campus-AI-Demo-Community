@@ -8,9 +8,11 @@ CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   username VARCHAR(64) NOT NULL,
   display_name VARCHAR(128) NOT NULL,
+  emp_id VARCHAR(128) NULL,
   password_hash VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_users_username (username)
+  UNIQUE KEY uk_users_username (username),
+  UNIQUE KEY uk_users_emp_id (emp_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sso_users (
@@ -30,7 +32,7 @@ CREATE TABLE IF NOT EXISTS sso_users (
   UNIQUE KEY uk_sso_users_provider_subject (auth_provider, provider_subject),
   KEY idx_sso_users_username (username),
   KEY idx_sso_users_email (email),
-  KEY idx_sso_users_emp_id (emp_id),
+  UNIQUE KEY uk_sso_users_emp_id (emp_id),
   KEY idx_sso_users_last_login_at (last_login_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

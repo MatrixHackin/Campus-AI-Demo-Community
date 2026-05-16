@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     harbor_public_project: str = 'dev'
     harbor_request_timeout_seconds: int = 10
 
+    k3s_namespace_sync_enabled: bool = True
+    kubeconfig_path: str | None = None
+    k3s_config_path: str = '/etc/rancher/k3s/k3s.yaml'
+
     @field_validator('cors_origins', mode='before')
     @classmethod
     def parse_cors_origins(cls, value):

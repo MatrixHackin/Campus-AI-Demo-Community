@@ -110,6 +110,39 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 - `GET /api/v1/harbor/me`：查询当前登录用户邮箱对应的 Harbor 私有项目，以及配置的公有镜像项目。
 
+## K3s Namespace 同步
+
+当前只对接 K3s 的 namespace 创建能力，不实现 Pod / Service / PVC / NodePort 等其他服务。
+
+SSO 登录成功并将用户 upsert 到 `sso_users` 后，后端会使用 SSO 返回的 `emp_id`
+确保存在对应 namespace：
+
+```text
+emp_id = 20260001 -> namespace = 20260001
+emp_id = ABC_001 -> namespace = abc-001
+```
+
+`emp_id` 在 `sso_users` 表中已配置唯一约束。对于已有数据库，请先确认没有重复的非空
+`emp_id`，再执行：
+
+```text
+backend/sql/add_unique_sso_emp_id.sql
+```
+
+K3s 连接配置：
+
+```env
+K3S_NAMESPACE_SYNC_ENABLED=true
+KUBECONFIG_PATH=
+K3S_CONFIG_PATH=/etc/rancher/k3s/k3s.yaml
+```
+
+说明：
+
+- namespace 创建失败时只记录 warning，不阻断 SSO 登录。
+- 如果 namespace 已存在，会直接复用。
+- 当前不会创建任何容器、Kubernetes Service 或端口暴露。
+
 ## 已知限制与后续优化
 
 - 当前后端登录 session 仍由单进程内存 `TokenStore` 保存，适合当前单实例部署；后续如果启用多进程、

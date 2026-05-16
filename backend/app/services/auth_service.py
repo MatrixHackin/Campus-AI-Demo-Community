@@ -88,7 +88,7 @@ class MySQLAuthRepository(AuthRepository):
             with connection.cursor() as cursor:
                 cursor.execute(
                     f'''
-                    SELECT id, username, display_name, password_hash
+                    SELECT id, username, display_name, emp_id, password_hash
                     FROM `{table_name}`
                     WHERE username = %s
                     LIMIT 1
@@ -112,6 +112,7 @@ class MySQLAuthRepository(AuthRepository):
             user_id=str(row['id']),
             username=row['username'],
             display_name=row.get('display_name') or row['username'],
+            emp_id=row.get('emp_id'),
         )
 
     async def authenticate(self, username: str, password: str) -> UserRecord | None:

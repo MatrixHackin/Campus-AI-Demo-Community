@@ -2,9 +2,17 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_auth_service, get_sso_service, get_sso_user_repository, get_token_store, settings
+from app.api.deps import (
+    get_auth_service,
+    get_k3s_service,
+    get_sso_service,
+    get_sso_user_repository,
+    get_token_store,
+    settings,
+)
 from app.schemas.auth import LoginRequest, LoginResponse
 from app.services.auth_service import AuthService
+from app.services.k3s_service import K3SService
 from app.services.sso_service import SSOService, generate_code_challenge, generate_code_verifier
 from app.services.sso_user_service import SSOUserProfile, SSOUserRepository
 from app.services.token_store import TokenStore
@@ -117,6 +125,7 @@ async def signin_oidc(
     token_store: TokenStore = Depends(get_token_store),
     sso_service: SSOService = Depends(get_sso_service),
     sso_user_repository: SSOUserRepository = Depends(get_sso_user_repository),
+    k3s_service: K3SService = Depends(get_k3s_service),
 ):
     if not code:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='登录失败，请重新登录')
@@ -154,6 +163,7 @@ async def signin_oidc(
         emp_id=userinfo.get('emp_id'),
     )
     local_user_id = await run_in_threadpool(sso_user_repository.upsert_login, sso_profile)
+    await run_in_threadpool(k3s_service.ensure_user_namespace, sso_profile.emp_id)
     local_session = token_store.issue_token(
         user_id=f'sso:{sub}',
         username=username,
