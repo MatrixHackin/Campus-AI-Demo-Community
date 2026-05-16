@@ -712,7 +712,7 @@ button {
 .container-row {
   min-height: 52px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) minmax(120px, 0.28fr);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   border: 1px solid rgba(47, 125, 246, 0.11);
@@ -806,8 +806,34 @@ button {
 }
 
 .container-row__actions {
-  min-height: 32px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
   border-radius: 999px;
+}
+
+.container-delete-button {
+  min-height: 30px;
+  border: 1px solid rgba(180, 35, 58, 0.16);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: var(--danger-text);
+  background: rgba(255, 255, 255, 0.68);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 760;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.container-delete-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: var(--danger-bg);
+  box-shadow: 0 12px 24px rgba(180, 35, 58, 0.1);
+}
+
+.container-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .modal-backdrop {

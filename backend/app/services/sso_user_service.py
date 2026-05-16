@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 
 from app.core.config import Settings
+from app.db.mysql import connect_mysql, validate_table_name
 
 logger = logging.getLogger(__name__)
 
@@ -33,25 +33,10 @@ class SSOUserRepository:
         self.settings = settings
 
     def _validate_table_name(self) -> str:
-        table_name = self.settings.sso_user_table
-        if not re.fullmatch(r'[A-Za-z0-9_]+', table_name):
-            raise ValueError('SSO 用户表名配置不合法')
-        return table_name
+        return validate_table_name(self.settings.sso_user_table, 'SSO 用户表名')
 
     def _connect(self):
-        import pymysql
-        from pymysql.cursors import DictCursor
-
-        return pymysql.connect(
-            host=self.settings.mysql_host,
-            port=self.settings.mysql_port,
-            user=self.settings.mysql_user,
-            password=self.settings.mysql_password,
-            database=self.settings.mysql_database,
-            charset=self.settings.mysql_charset,
-            cursorclass=DictCursor,
-            autocommit=True,
-        )
+        return connect_mysql(self.settings)
 
     def upsert_login(self, profile: SSOUserProfile) -> int | None:
         if not self.settings.sso_user_persistence_enabled:

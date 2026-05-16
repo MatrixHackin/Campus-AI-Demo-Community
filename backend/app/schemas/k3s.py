@@ -31,6 +31,13 @@ class ContainerListResponse(BaseModel):
     containers: list[ContainerItem]
 
 
+class ContainerDeleteResponse(BaseModel):
+    pod_name: str
+    namespace: str
+    app_name: str | None = None
+    status: str
+
+
 class AppNameAvailabilityResponse(BaseModel):
     app_name: str
     available: bool

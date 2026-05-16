@@ -4,6 +4,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     get_auth_service,
+    get_current_session,
     get_sso_service,
     get_sso_user_repository,
     get_token_store,
@@ -13,7 +14,7 @@ from app.schemas.auth import LoginRequest, LoginResponse
 from app.services.auth_service import AuthService
 from app.services.sso_service import SSOService, generate_code_challenge, generate_code_verifier
 from app.services.sso_user_service import SSOUserProfile, SSOUserRepository
-from app.services.token_store import TokenStore
+from app.services.token_store import SessionRecord, TokenStore
 
 api_router = APIRouter(prefix='/auth', tags=['auth'])
 browser_router = APIRouter(prefix='/auth', tags=['auth'])
@@ -54,14 +55,8 @@ async def login(
 
 @api_router.get('/me')
 async def me(
-    session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
-    token_store: TokenStore = Depends(get_token_store),
+    session: SessionRecord = Depends(get_current_session),
 ):
-    if not session_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='未登录')
-    session = token_store.get_session(session_token)
-    if not session:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='登录状态已失效')
     return {
         'user': {
             'id': session.user_id,

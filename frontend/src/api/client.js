@@ -48,6 +48,12 @@ export async function getMyContainers() {
   return request('/k3s/containers')
 }
 
+export async function deleteContainer(podName) {
+  return request(`/k3s/containers/${encodeURIComponent(podName)}`, {
+    method: 'DELETE'
+  })
+}
+
 export async function checkAppName(appName) {
   const query = new URLSearchParams({ app_name: appName }).toString()
   return request(`/k3s/apps/check-name?${query}`)

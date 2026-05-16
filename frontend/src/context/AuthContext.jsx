@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { getCurrentUser, login as loginApi } from '../api/client'
 
 const AuthContext = createContext(null)
@@ -38,7 +38,7 @@ export function AuthProvider({ children }) {
     // only run once on app startup
   }, [])
 
-  const login = async (credentials) => {
+  const login = useCallback(async (credentials) => {
     const result = await loginApi(credentials)
     const nextSession = {
       user: result.user,
@@ -47,12 +47,12 @@ export function AuthProvider({ children }) {
     }
     setSession(nextSession)
     return result
-  }
+  }, [])
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setSession(null)
     window.location.href = '/auth/logout'
-  }
+  }, [])
 
   const value = useMemo(
     () => ({
@@ -63,7 +63,7 @@ export function AuthProvider({ children }) {
       login,
       logout
     }),
-    [loading, session]
+    [loading, login, logout, session]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

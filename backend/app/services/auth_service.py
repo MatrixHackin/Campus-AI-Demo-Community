@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import hashlib
-import re
 
 from fastapi import HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings
 from app.db.interfaces import AuthRepository, UserRecord
+from app.db.mysql import connect_mysql, validate_table_name
 from app.services.token_store import TokenStore
 
 
@@ -39,10 +39,10 @@ class MySQLAuthRepository(AuthRepository):
         self.settings = settings
 
     def _validate_table_name(self) -> str:
-        table_name = self.settings.mysql_user_table
-        if not re.fullmatch(r'[A-Za-z0-9_]+', table_name):
-            raise HTTPException(status_code=500, detail='用户表名配置不合法')
-        return table_name
+        try:
+            return validate_table_name(self.settings.mysql_user_table, '用户表名')
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail='用户表名配置不合法') from exc
 
     def _verify_password(self, password: str, stored_hash: str) -> bool:
         """校验格式：pbkdf2_sha256$iterations$salt$hash。"""
@@ -63,25 +63,12 @@ class MySQLAuthRepository(AuthRepository):
         return actual_hash == expected_hash
 
     def _authenticate_sync(self, username: str, password: str) -> UserRecord | None:
-        try:
-            import pymysql
-            from pymysql.cursors import DictCursor
-        except ImportError as exc:
-            raise HTTPException(status_code=500, detail='未安装 PyMySQL，请先安装 MySQL 驱动') from exc
-
         table_name = self._validate_table_name()
 
         try:
-            connection = pymysql.connect(
-                host=self.settings.mysql_host,
-                port=self.settings.mysql_port,
-                user=self.settings.mysql_user,
-                password=self.settings.mysql_password,
-                database=self.settings.mysql_database,
-                charset=self.settings.mysql_charset,
-                cursorclass=DictCursor,
-                autocommit=True,
-            )
+            connection = connect_mysql(self.settings)
+        except ImportError as exc:
+            raise HTTPException(status_code=500, detail='未安装 PyMySQL，请先安装 MySQL 驱动') from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f'MySQL 连接失败: {str(exc)}') from exc
 

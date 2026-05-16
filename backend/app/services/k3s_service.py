@@ -11,6 +11,18 @@ from app.services.container_repository import ContainerRepository
 
 logger = logging.getLogger(__name__)
 
+K8S_DNS_LABEL_PATTERN = re.compile(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?')
+RESERVED_APP_NAMES = {
+    'api',
+    'assets',
+    'auth',
+    'dashboard',
+    'login',
+    'manual',
+    'signin-oidc',
+    'signout-callback',
+}
+
 
 class K3SService:
     """K3s 集群服务。
@@ -29,7 +41,7 @@ class K3SService:
     def namespace_for_emp_id(self, emp_id: str) -> str:
         namespace = re.sub(r'[^a-z0-9-]+', '-', emp_id.strip().lower()).strip('-')
         namespace = namespace[:63].rstrip('-')
-        if not namespace or not re.fullmatch(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?', namespace):
+        if not namespace or not K8S_DNS_LABEL_PATTERN.fullmatch(namespace):
             raise ValueError(f'K3s namespace 名称不合法，emp_id={emp_id!r}')
         return namespace
 
@@ -40,9 +52,9 @@ class K3SService:
         normalized = app_name.strip().lower()
         if len(normalized) > 40:
             raise ValueError('应用名称最多 40 个字符')
-        if not normalized or not re.fullmatch(r'[a-z0-9]([-a-z0-9]*[a-z0-9])?', normalized):
+        if not normalized or not K8S_DNS_LABEL_PATTERN.fullmatch(normalized):
             raise ValueError('应用名称只允许小写字母、数字和中划线，且必须以字母或数字开头结尾')
-        if normalized in {'api', 'auth', 'login', 'dashboard', 'manual', 'assets', 'signin-oidc', 'signout-callback'}:
+        if normalized in RESERVED_APP_NAMES:
             raise ValueError('该应用名称为系统保留名称，请更换')
         return normalized
 
@@ -162,6 +174,44 @@ class K3SService:
         return {
             'namespace': namespace,
             'containers': [self._container_item_from_pod(pod) for pod in pods],
+        }
+
+    def delete_user_container(self, emp_id: str | None, username: str, pod_name: str) -> dict[str, Any]:
+        """删除当前用户 namespace 下的 Pod 及其配套 Secret/Service/Ingress/DB 记录。"""
+        if not pod_name or not K8S_DNS_LABEL_PATTERN.fullmatch(pod_name):
+            raise ValueError('Pod 名称不合法')
+        if not emp_id:
+            raise RuntimeError('当前用户缺少 emp_id，无法删除容器')
+
+        try:
+            namespace = self.namespace_for_emp_id(emp_id)
+        except ValueError as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        record = self.container_repository.get_container_record(pod_name=pod_name)
+        if record and record.get('username') and record['username'] != username:
+            raise PermissionError('无权删除该容器')
+
+        app_name = record.get('app_name') if record else None
+        try:
+            pod = self._core().read_namespaced_pod(name=pod_name, namespace=namespace)
+            labels = pod.metadata.labels if pod.metadata and pod.metadata.labels else {}
+            app_name = app_name or labels.get('campus-ai/app-name')
+        except self._api_exception_class() as exc:
+            if exc.status != 404:
+                logger.warning('K3s Pod %s/%s 查询失败：%s', namespace, pod_name, exc)
+                raise RuntimeError(f'查询容器失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('K3s Pod %s/%s 查询异常：%s', namespace, pod_name, exc)
+            raise RuntimeError(f'查询容器失败：{exc}') from exc
+
+        self._delete_app_resources(namespace=namespace, pod_name=pod_name, app_name=app_name, strict=True)
+        self.container_repository.delete_container_record(pod_name=pod_name)
+        return {
+            'pod_name': pod_name,
+            'namespace': namespace,
+            'app_name': app_name,
+            'status': 'deleting',
         }
 
     def _ensure_user_namespace_or_raise(self, emp_id: str | None) -> str:
@@ -388,22 +438,63 @@ class K3SService:
 
     def _rollback_app_creation(self, namespace: str, pod_name: str, app_name: str) -> None:
         """尽力回滚部分创建成功的资源，避免失败申请占用 app_name。"""
+        self._delete_app_resources(namespace=namespace, pod_name=pod_name, app_name=app_name)
+        self.container_repository.delete_container_record(pod_name=pod_name, suppress_errors=True)
+
+    def _delete_app_resources(
+        self,
+        namespace: str,
+        pod_name: str,
+        app_name: str | None,
+        strict: bool = False,
+    ) -> None:
+        """删除应用相关 K8s 资源；404 视为已经删除。
+
+        strict=False 用于创建失败回滚，会尽力清理并记录日志；
+        strict=True 用于用户主动删除，若 K8s 删除失败则阻止删除数据库记录，避免后台资源孤儿化。
+        """
         api_exception = self._api_exception_class()
-        cleanup_steps = (
-            lambda: self._networking().delete_namespaced_ingress(name=app_name, namespace=namespace),
-            lambda: self._core().delete_namespaced_service(name=f'{app_name}-svc', namespace=namespace),
-            lambda: self._core().delete_namespaced_secret(name=f'{app_name}-connection', namespace=namespace),
-            lambda: self._core().delete_namespaced_pod(name=pod_name, namespace=namespace),
-            lambda: self.container_repository.delete_container_record(pod_name=pod_name),
+        errors: list[str] = []
+        cleanup_steps = []
+        if app_name:
+            cleanup_steps.extend(
+                [
+                    (
+                        f'ingress/{app_name}',
+                        lambda: self._networking().delete_namespaced_ingress(name=app_name, namespace=namespace),
+                    ),
+                    (
+                        f'service/{app_name}-svc',
+                        lambda: self._core().delete_namespaced_service(name=f'{app_name}-svc', namespace=namespace),
+                    ),
+                    (
+                        f'secret/{app_name}-connection',
+                        lambda: self._core().delete_namespaced_secret(name=f'{app_name}-connection', namespace=namespace),
+                    ),
+                ]
+            )
+        cleanup_steps.append(
+            (
+                f'pod/{pod_name}',
+                lambda: self._core().delete_namespaced_pod(name=pod_name, namespace=namespace),
+            )
         )
-        for cleanup in cleanup_steps:
+
+        for resource_name, cleanup in cleanup_steps:
             try:
                 cleanup()
             except api_exception as exc:
                 if exc.status != 404:
-                    logger.warning('K3s devbox 应用 %s 回滚部分资源失败：%s', app_name, exc)
+                    message = f'{resource_name}: {exc.reason or exc.status}'
+                    errors.append(message)
+                    logger.warning('K3s devbox 应用 %s 删除资源 %s 失败：%s', app_name or pod_name, resource_name, exc)
             except Exception as exc:
-                logger.warning('K3s devbox 应用 %s 回滚部分资源异常：%s', app_name, exc)
+                message = f'{resource_name}: {exc}'
+                errors.append(message)
+                logger.warning('K3s devbox 应用 %s 删除资源 %s 异常：%s', app_name or pod_name, resource_name, exc)
+
+        if strict and errors:
+            raise RuntimeError('删除 K3s 资源失败：' + '; '.join(errors))
 
     @staticmethod
     def _container_item_from_pod(pod) -> dict[str, Any]:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from app.core.config import Settings
+from app.db.mysql import connect_mysql, validate_table_name
 
 logger = logging.getLogger(__name__)
 
@@ -19,25 +19,10 @@ class ContainerRepository:
 
     @staticmethod
     def _table_name() -> str:
-        table_name = 'containers'
-        if not re.fullmatch(r'[A-Za-z0-9_]+', table_name):
-            raise ValueError('容器表名配置不合法')
-        return table_name
+        return validate_table_name('containers', '容器表名')
 
     def _connect(self):
-        import pymysql
-        from pymysql.cursors import DictCursor
-
-        return pymysql.connect(
-            host=self.settings.mysql_host,
-            port=self.settings.mysql_port,
-            user=self.settings.mysql_user,
-            password=self.settings.mysql_password,
-            database=self.settings.mysql_database,
-            charset=self.settings.mysql_charset,
-            cursorclass=DictCursor,
-            autocommit=True,
-        )
+        return connect_mysql(self.settings)
 
     def app_name_exists(self, app_name: str) -> bool:
         table_name = self._table_name()
@@ -102,13 +87,39 @@ class ContainerRepository:
         finally:
             connection.close()
 
-    def delete_container_record(self, *, pod_name: str) -> None:
+    def get_container_record(self, *, pod_name: str) -> dict | None:
         table_name = self._table_name()
         try:
             connection = self._connect()
         except Exception as exc:
-            logger.warning('连接容器记录数据库失败，跳过删除容器记录：%s', exc)
-            return
+            raise RuntimeError(f'连接容器记录数据库失败：{exc}') from exc
+
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f'''
+                    SELECT pod_name, app_name, username
+                    FROM `{table_name}`
+                    WHERE pod_name = %s
+                    LIMIT 1
+                    ''',
+                    (pod_name,),
+                )
+                return cursor.fetchone()
+        except Exception as exc:
+            raise RuntimeError(f'查询容器记录失败：{exc}') from exc
+        finally:
+            connection.close()
+
+    def delete_container_record(self, *, pod_name: str, suppress_errors: bool = False) -> None:
+        table_name = self._table_name()
+        try:
+            connection = self._connect()
+        except Exception as exc:
+            if suppress_errors:
+                logger.warning('连接容器记录数据库失败，跳过删除容器记录：%s', exc)
+                return
+            raise RuntimeError(f'连接容器记录数据库失败：{exc}') from exc
 
         try:
             with connection.cursor() as cursor:
@@ -119,6 +130,11 @@ class ContainerRepository:
                     ''',
                     (pod_name,),
                 )
+        except Exception as exc:
+            if suppress_errors:
+                logger.warning('删除容器记录失败，跳过：%s', exc)
+                return
+            raise RuntimeError(f'删除容器记录失败：{exc}') from exc
         finally:
             connection.close()
 

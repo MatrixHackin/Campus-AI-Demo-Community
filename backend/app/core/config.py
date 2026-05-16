@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     harbor_public_project: str = 'dev'
     harbor_request_timeout_seconds: int = 10
 
+    user_max_storage: int = 10
+
     kubeconfig_path: str | None = None
     k3s_config_path: str = '/etc/rancher/k3s/k3s.yaml'
     k3s_devbox_image: str = 'gpunion2.io/dev/devbox:latest'

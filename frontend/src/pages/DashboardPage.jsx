@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { checkAppName, createDevboxContainer, getMyContainers, getMyHarborImages } from '../api/client'
+import {
+  checkAppName,
+  createDevboxContainer,
+  deleteContainer,
+  getMyContainers,
+  getMyHarborImages
+} from '../api/client'
 import AppShell from '../components/AppShell'
 
 const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
@@ -83,7 +89,7 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
   )
 }
 
-function ContainerList({ containers, loading }) {
+function ContainerList({ containers, deletingPodName, loading, onDelete }) {
   if (loading) {
     return <div className="muted-card">正在加载容器…</div>
   }
@@ -107,7 +113,16 @@ function ContainerList({ containers, loading }) {
                 {statusText(container.status)}
               </span>
             </div>
-            <div className="container-row__actions" aria-hidden="true" />
+            <div className="container-row__actions">
+              <button
+                className="container-delete-button"
+                type="button"
+                onClick={() => onDelete(container)}
+                disabled={deletingPodName === container.name || container.status === 'Terminating'}
+              >
+                {deletingPodName === container.name ? '删除中…' : '删除'}
+              </button>
+            </div>
           </div>
         )
       })}
@@ -195,6 +210,7 @@ export default function DashboardPage() {
   const [containersError, setContainersError] = useState('')
   const [creatingContainer, setCreatingContainer] = useState(false)
   const [containerError, setContainerError] = useState('')
+  const [deletingPodName, setDeletingPodName] = useState('')
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
   const [appName, setAppName] = useState('')
   const [connectionPassword, setConnectionPassword] = useState('')
@@ -293,6 +309,23 @@ export default function DashboardPage() {
     }
   }, [appName, connectionPassword, loadContainers, resetApplyForm])
 
+  const handleDeleteContainer = useCallback(async (container) => {
+    if (!container?.name) return
+    const confirmed = window.confirm(`确定删除容器 ${container.name} 及其配套访问资源吗？`)
+    if (!confirmed) return
+
+    setDeletingPodName(container.name)
+    setContainerError('')
+    try {
+      await deleteContainer(container.name)
+      await loadContainers()
+    } catch (err) {
+      setContainerError(err.message)
+    } finally {
+      setDeletingPodName('')
+    }
+  }, [loadContainers])
+
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
     ? harborInfo?.message || 'Harbor 未配置'
@@ -320,7 +353,12 @@ export default function DashboardPage() {
           {containerError ? <div className="feedback feedback--error">{containerError}</div> : null}
           {containersError ? <div className="feedback feedback--error">{containersError}</div> : null}
           {!containersError ? (
-            <ContainerList containers={containersInfo?.containers || []} loading={containersLoading} />
+            <ContainerList
+              containers={containersInfo?.containers || []}
+              deletingPodName={deletingPodName}
+              loading={containersLoading}
+              onDelete={handleDeleteContainer}
+            />
           ) : null}
         </section>
 

@@ -112,8 +112,8 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 ## K3s Namespace 与开发容器
 
-当前已对接 K3s 的 namespace 创建、默认 devbox Pod 申请，以及基于 Traefik Ingress 的
-HTTP 应用暴露能力；暂不实现 PVC、删除容器等其他服务。
+当前已对接 K3s 的 namespace 创建、默认 devbox Pod 申请、容器删除，以及基于 Traefik Ingress 的
+HTTP 应用暴露能力；暂不实现 PVC 等其他服务。
 
 后端不会在 SSO 登录/注册时创建 namespace。用户在工作台点击“申请容器”时，后端才会使用当前
 登录用户的 `emp_id` 确保存在对应 namespace：
@@ -167,6 +167,8 @@ K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
   ```
 
 - `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
+- `DELETE /api/v1/k3s/containers/{pod_name}`：删除当前登录用户 namespace 下的 Pod，并同步删除对应
+  Secret、Service、Ingress 和 `containers` 表记录。
 
 说明：
 
