@@ -104,7 +104,7 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
   )
 }
 
-function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDelete, onOpenWebSsh }) {
+function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDelete, onOpenApp, onOpenWebSsh }) {
   if (loading) {
     return <div className="muted-card">正在加载容器…</div>
   }
@@ -129,6 +129,14 @@ function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDele
               </span>
             </div>
             <div className="container-row__actions">
+              <button
+                className="container-action-button"
+                type="button"
+                onClick={() => onOpenApp(container)}
+                disabled={!container.url}
+              >
+                访问应用
+              </button>
               <button
                 className="container-action-button"
                 type="button"
@@ -404,6 +412,11 @@ export default function DashboardPage() {
     window.open(container.webssh_url, '_blank', 'noopener,noreferrer')
   }, [])
 
+  const handleOpenApp = useCallback((container) => {
+    if (!container?.url) return
+    window.open(container.url, '_blank', 'noopener,noreferrer')
+  }, [])
+
   const handleCopySsh = useCallback(async (container) => {
     if (!container?.native_ssh_command) return
     setContainerError('')
@@ -450,6 +463,7 @@ export default function DashboardPage() {
               loading={containersLoading}
               onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
+              onOpenApp={handleOpenApp}
               onOpenWebSsh={handleOpenWebSsh}
             />
           ) : null}

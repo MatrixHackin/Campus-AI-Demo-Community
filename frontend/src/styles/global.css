@@ -975,8 +975,10 @@ button {
 
 .webssh-panel {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
-  min-height: calc(100vh - 210px);
+  height: calc(100vh - 138px);
+  min-height: 640px;
   padding: 18px;
   border-radius: var(--radius-lg);
   border: 1px solid rgba(255, 255, 255, 0.74);
@@ -1029,12 +1031,23 @@ button {
 }
 
 .webssh-terminal {
-  min-height: 560px;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
   border-radius: 20px;
   border: 1px solid rgba(8, 17, 31, 0.18);
   background: #08111f;
-  padding: 14px;
+  padding: 0;
+}
+
+.webssh-terminal .terminal {
+  height: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.webssh-terminal .xterm-viewport {
+  border-radius: 14px;
 }
 
 .image-repository-panel {

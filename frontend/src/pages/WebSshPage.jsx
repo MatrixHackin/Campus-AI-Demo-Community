@@ -3,6 +3,7 @@ import '@xterm/xterm/css/xterm.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
 import { getWebSshSocketUrl } from '../api/client'
 import AppShell from '../components/AppShell'
 
@@ -14,6 +15,12 @@ function parseTarget(target = '') {
   return {
     appName: target.slice(0, index),
     sshUsername: target.slice(index + 1)
+  }
+}
+
+function sendSocketMessage(socket, message) {
+  if (socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message))
   }
 }
 
@@ -32,6 +39,7 @@ export default function WebSshPage() {
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
+      scrollback: 8000,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
       fontSize: 14,
       theme: {
@@ -40,18 +48,47 @@ export default function WebSshPage() {
         cursor: '#70a6ff'
       }
     })
+    const fitAddon = new FitAddon()
+    terminal.loadAddon(fitAddon)
     terminal.open(terminalRef.current)
+    fitAddon.fit()
     terminal.writeln(`Connecting to ${parsedTarget.sshUsername}@${parsedTarget.appName} ...`)
 
     const socket = new WebSocket(getWebSshSocketUrl(parsedTarget.appName, parsedTarget.sshUsername))
+    const writeQueue = []
+    let writing = false
+
+    const pumpWriteQueue = () => {
+      if (writing || writeQueue.length === 0) return
+      writing = true
+      terminal.write(writeQueue.shift(), () => {
+        writing = false
+        pumpWriteQueue()
+      })
+    }
+
+    const queueTerminalWrite = (data) => {
+      writeQueue.push(data)
+      pumpWriteQueue()
+    }
+
+    const sendResize = () => {
+      sendSocketMessage(socket, {
+        type: 'resize',
+        cols: terminal.cols,
+        rows: terminal.rows
+      })
+    }
 
     socket.addEventListener('open', () => {
       setStatus('connected')
       terminal.writeln('Connected.')
+      fitAddon.fit()
+      sendResize()
     })
 
     socket.addEventListener('message', (event) => {
-      terminal.write(event.data)
+      queueTerminalWrite(event.data)
     })
 
     socket.addEventListener('close', () => {
@@ -65,12 +102,17 @@ export default function WebSshPage() {
     })
 
     const disposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(data)
-      }
+      sendSocketMessage(socket, { type: 'data', data })
     })
 
+    const resizeObserver = new ResizeObserver(() => {
+      fitAddon.fit()
+      sendResize()
+    })
+    resizeObserver.observe(terminalRef.current)
+
     return () => {
+      resizeObserver.disconnect()
       disposable.dispose()
       socket.close()
       terminal.dispose()

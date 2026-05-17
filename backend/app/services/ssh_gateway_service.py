@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import errno
+import json
 import logging
 import select
 import socket
@@ -278,7 +279,20 @@ class SSHGatewayService:
                     if data is None and message.get('bytes') is not None:
                         data = message['bytes'].decode('utf-8', errors='ignore')
                     if data:
-                        process.stdin.write(data)
+                        try:
+                            payload = json.loads(data)
+                        except json.JSONDecodeError:
+                            process.stdin.write(data)
+                            continue
+
+                        if not isinstance(payload, dict):
+                            continue
+                        if payload.get('type') == 'resize':
+                            cols = int(payload.get('cols') or 100)
+                            rows = int(payload.get('rows') or 32)
+                            process.change_terminal_size(cols, rows)
+                        elif payload.get('type') == 'data':
+                            process.stdin.write(payload.get('data') or '')
 
             async def ssh_stream_to_websocket(reader) -> None:
                 while True:
@@ -287,18 +301,27 @@ class SSHGatewayService:
                         break
                     await websocket.send_text(data)
 
-            tasks = [
-                asyncio.create_task(websocket_to_ssh()),
-                asyncio.create_task(ssh_stream_to_websocket(process.stdout)),
-                asyncio.create_task(ssh_stream_to_websocket(process.stderr)),
-            ]
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
+            input_task = asyncio.create_task(websocket_to_ssh())
+            stdout_task = asyncio.create_task(ssh_stream_to_websocket(process.stdout))
+            stderr_task = asyncio.create_task(ssh_stream_to_websocket(process.stderr))
+            process_task = asyncio.create_task(process.wait())
+            tasks = {input_task, stdout_task, stderr_task, process_task}
+            output_tasks = {stdout_task, stderr_task}
+
+            while tasks:
+                done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    tasks.discard(task)
+                    output_tasks.discard(task)
+                    task.result()
+
+                if input_task in done or process_task in done or not output_tasks:
+                    break
+
+            for task in tasks:
                 task.cancel()
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
-            for task in done:
-                task.result()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             if process is not None:
                 with contextlib.suppress(Exception):
