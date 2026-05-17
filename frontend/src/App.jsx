@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import LandingPage from './pages/LandingPage'
 import LoginPage from './pages/LoginPage'
@@ -6,6 +7,8 @@ import CommunityPage from './pages/CommunityPage'
 import MyAppsPage from './pages/MyAppsPage'
 import DeveloperManualPage from './pages/DeveloperManualPage'
 import ProtectedRoute from './components/ProtectedRoute'
+
+const WebSshPage = lazy(() => import('./pages/WebSshPage'))
 
 export default function App() {
   return (
@@ -41,6 +44,16 @@ export default function App() {
         element={
           <ProtectedRoute>
             <DeveloperManualPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/ssh/:target"
+        element={
+          <ProtectedRoute>
+            <Suspense fallback={null}>
+              <WebSshPage />
+            </Suspense>
           </ProtectedRoute>
         }
       />

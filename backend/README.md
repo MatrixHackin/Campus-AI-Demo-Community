@@ -135,6 +135,7 @@ backend/sql/add_unique_sso_emp_id.sql
 
 ```text
 backend/sql/add_unique_containers_app_name.sql
+backend/sql/add_ssh_container_fields.sql
 ```
 
 K3s 连接配置：
@@ -146,9 +147,16 @@ K3S_DEVBOX_IMAGE=gpunion2.io/dev/devbox:latest
 K3S_DEVBOX_CPU=2
 K3S_DEVBOX_MEMORY=4Gi
 K3S_DEVBOX_COMMAND=/bin/sh,-c,sleep infinity
+K3S_DEVBOX_DNS_NAMESERVERS=10.90.63.2,10.90.63.3,8.8.8.8
 K3S_APPS_HOST=gpunion.hkust-gz.edu.cn
 K3S_APPS_PATH_PREFIX=/apps
 K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
+SSH_GATEWAY_ENABLED=true
+SSH_GATEWAY_HOST=0.0.0.0
+SSH_GATEWAY_PORT=2222
+SSH_GATEWAY_PUBLIC_HOST=10.120.17.138
+SSH_GATEWAY_HOST_KEY_PATH=
+WEBSSH_PUBLIC_PATH_PREFIX=/ssh
 ```
 
 接口：
@@ -168,7 +176,8 @@ K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
 
 - `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
 - `DELETE /api/v1/k3s/containers/{pod_name}`：删除当前登录用户 namespace 下的 Pod，并同步删除对应
-  Secret、Service、Ingress 和 `containers` 表记录。
+  Secret、Web Service、SSH Service、Ingress 和 `containers` 表记录。
+- `WebSocket /api/v1/ssh/ws/{app_name}/{ssh_username}`：WebSSH 浏览器终端通道。
 
 说明：
 
@@ -176,12 +185,23 @@ K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
 - 如果 namespace 已存在，会直接复用。
 - 工作台“申请容器”按钮会先要求填写 `app_name` 和连接密码；后端会再次校验 `app_name` 未被使用。
 - 申请容器时会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod、一个
-  ClusterIP Service、一个 Traefik Ingress，并将容器内 3000 端口应用暴露为
+  Web ClusterIP Service、一个 SSH ClusterIP Service、一个 Traefik Ingress，并将容器内 3000 端口应用暴露为
   `https://gpunion.hkust-gz.edu.cn/apps/{app_name}`。
-- 申请成功时会向 `containers` 表写入 `pod_name`、`app_name`、`username` 和连接密码；其中
+- 申请成功时会向 `containers` 表写入 `pod_name`、`app_name`、`namespace`、`username`、
+  `ssh_username`、`ssh_service_name` 和连接密码；其中
   `app_name` 使用唯一索引避免并发申请时重名。
 - 默认 devbox Pod 资源 request/limit 均为 2 核 CPU、4Gi 内存，镜像默认使用 `gpunion2.io/dev/devbox:latest`。
-- 连接密码会先保存为 Kubernetes Secret，后续用于 SSH 连接；当前不会启用 SSH。
+- 默认 devbox Pod 使用 `K3S_DEVBOX_DNS_NAMESERVERS` 配置固定 DNS，并设置 `dnsPolicy=None`，用于绕过
+  当前 kube-dns 外部域名解析超时问题；如果该配置留空，则恢复 Kubernetes 默认 `ClusterFirst` DNS。
+- devbox 镜像需内置 `openssh-server`、`bash`、`useradd`、`chpasswd`、`ssh-keygen`、`sudo`。
+- 连接密码会保存到 Kubernetes Secret 和 `containers.password`，用于 WebSSH 和原生 SSH 登录。
+- 当前后端以 systemd 进程运行在宿主机上，不直接依赖宿主机访问 K3s ClusterIP；WebSSH 和原生 SSH
+  Gateway 会通过 Kubernetes API 对目标 Pod 建立临时 port-forward，再连接容器内 SSHD。
+- WebSSH 地址格式：`https://gpunion.hkust-gz.edu.cn/ssh/{app_name}+{ssh_username}`。
+- 第一版原生 SSH 地址格式：`ssh {ssh_username}+{app_name}@10.120.17.138 -p 2222`；如果用户名包含
+  `@`、空格等特殊字符，工作台会改用等价的 `ssh -l '{ssh_username}+{app_name}' 10.120.17.138 -p 2222`。
+- 建议生产环境设置 `SSH_GATEWAY_HOST_KEY_PATH` 为一个后端进程可读写的固定文件路径，避免后端重启后
+  原生 SSH 客户端提示服务端 HostKey 变化。
 - 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
   base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
 - demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。

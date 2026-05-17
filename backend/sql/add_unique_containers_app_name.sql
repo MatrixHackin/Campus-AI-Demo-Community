@@ -5,3 +5,5 @@ USE campus_ai;
 ALTER TABLE containers
   ADD COLUMN app_name VARCHAR(64) NULL AFTER pod_name,
   ADD UNIQUE KEY uk_containers_app_name (app_name);
+
+-- 如果准备同时启用 WebSSH / 原生 SSH，请继续执行 add_ssh_container_fields.sql。

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import logging
 import re
+import shlex
 import uuid
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
@@ -47,6 +49,23 @@ class K3SService:
 
     def app_url(self, app_name: str) -> str:
         return f'{self.settings.k3s_apps_public_base_url}/{app_name}'
+
+    def webssh_url(self, app_name: str, ssh_username: str) -> str:
+        encoded_app_name = quote(app_name, safe='')
+        encoded_ssh_username = quote(ssh_username, safe='')
+        return f'{self.settings.webssh_public_path_prefix}/{encoded_app_name}+{encoded_ssh_username}'
+
+    def native_ssh_command(self, app_name: str, ssh_username: str) -> str:
+        login_name = f'{ssh_username}+{app_name}'
+        if not re.fullmatch(r'[A-Za-z0-9._+-]+', login_name):
+            return (
+                f'ssh -l {shlex.quote(login_name)} {self.settings.ssh_gateway_public_host} '
+                f'-p {self.settings.ssh_gateway_port}'
+            )
+        return (
+            f'ssh {login_name}@{self.settings.ssh_gateway_public_host} '
+            f'-p {self.settings.ssh_gateway_port}'
+        )
 
     def normalize_app_name(self, app_name: str) -> str:
         normalized = app_name.strip().lower()
@@ -93,18 +112,23 @@ class K3SService:
 
         namespace = self._ensure_user_namespace_or_raise(emp_id)
         pod_name = f'campus-devbox-{uuid.uuid4().hex[:8]}'
+        ssh_service_name = f'{normalized_app_name}-ssh-svc'
         pod = self._devbox_pod_body(
             pod_name=pod_name,
             namespace=namespace,
             emp_id=emp_id or '',
             app_name=normalized_app_name,
+            ssh_username=username,
         )
         try:
             self.container_repository.create_container_record(
                 pod_name=pod_name,
                 app_name=normalized_app_name,
+                namespace=namespace,
                 username=username,
                 password=connection_password,
+                ssh_username=username,
+                ssh_service_name=ssh_service_name,
             )
             self._core().create_namespaced_secret(
                 namespace=namespace,
@@ -114,6 +138,10 @@ class K3SService:
             self._core().create_namespaced_service(
                 namespace=namespace,
                 body=self._app_service_body(normalized_app_name),
+            )
+            self._core().create_namespaced_service(
+                namespace=namespace,
+                body=self._ssh_service_body(normalized_app_name),
             )
             self._networking().create_namespaced_ingress(
                 namespace=namespace,
@@ -137,6 +165,9 @@ class K3SService:
             'namespace': namespace,
             'app_name': normalized_app_name,
             'url': self.app_url(normalized_app_name),
+            'ssh_username': username,
+            'webssh_url': self.webssh_url(normalized_app_name, username),
+            'native_ssh_command': self.native_ssh_command(normalized_app_name, username),
             'image': self.settings.k3s_devbox_image,
             'cpu': self.settings.k3s_devbox_cpu,
             'memory': self.settings.k3s_devbox_memory,
@@ -214,6 +245,54 @@ class K3SService:
             'status': 'deleting',
         }
 
+    def get_ssh_target(
+        self,
+        app_name: str,
+        ssh_username: str,
+        owner_username: str | None = None,
+        password: str | None = None,
+    ) -> dict[str, Any]:
+        """查询并校验 app 对应的 SSH Service 目标。"""
+        normalized_app_name = self.normalize_app_name(app_name)
+        record = self.container_repository.get_container_record_by_app_name(app_name=normalized_app_name)
+        if not record:
+            raise FileNotFoundError('未找到应用对应的容器记录')
+
+        record_ssh_username = record.get('ssh_username') or record.get('username')
+        if record_ssh_username != ssh_username:
+            raise PermissionError('SSH 用户名与应用记录不匹配')
+        if owner_username is not None and record.get('username') != owner_username:
+            raise PermissionError('无权访问该应用 SSH')
+        if password is not None and record.get('password') != password:
+            raise PermissionError('SSH 密码错误')
+
+        namespace = record.get('namespace')
+        ssh_service_name = record.get('ssh_service_name') or f'{normalized_app_name}-ssh-svc'
+        if not namespace:
+            raise RuntimeError('容器记录缺少 namespace，无法连接 SSH')
+
+        try:
+            service = self._core().read_namespaced_service(name=ssh_service_name, namespace=namespace)
+        except self._api_exception_class() as exc:
+            if exc.status == 404:
+                raise FileNotFoundError('未找到应用 SSH Service') from exc
+            raise RuntimeError(f'查询 SSH Service 失败：{exc.reason or exc.status}') from exc
+
+        cluster_ip = service.spec.cluster_ip if service.spec else None
+        if not cluster_ip or cluster_ip == 'None':
+            raise RuntimeError('SSH Service 缺少 ClusterIP')
+
+        return {
+            'app_name': normalized_app_name,
+            'namespace': namespace,
+            'pod_name': record.get('pod_name'),
+            'ssh_username': record_ssh_username,
+            'password': record.get('password'),
+            'service_name': ssh_service_name,
+            'host': cluster_ip,
+            'port': 22,
+        }
+
     def _ensure_user_namespace_or_raise(self, emp_id: str | None) -> str:
         if not emp_id:
             raise RuntimeError('当前用户缺少 emp_id，无法创建 namespace')
@@ -285,13 +364,14 @@ class K3SService:
             )
         )
 
-    def _devbox_pod_body(self, pod_name: str, namespace: str, emp_id: str, app_name: str):
+    def _devbox_pod_body(self, pod_name: str, namespace: str, emp_id: str, app_name: str, ssh_username: str):
         from kubernetes import client
 
         resource_value = {
             'cpu': self.settings.k3s_devbox_cpu,
             'memory': self.settings.k3s_devbox_memory,
         }
+        startup_script = self._devbox_startup_script()
         return client.V1Pod(
             api_version='v1',
             kind='Pod',
@@ -306,20 +386,41 @@ class K3SService:
                 annotations={
                     'campus-ai/owner-emp-id': emp_id,
                     'campus-ai/public-url': self.app_url(app_name),
+                    'campus-ai/ssh-username': ssh_username,
+                    'campus-ai/webssh-url': self.webssh_url(app_name, ssh_username),
+                    'campus-ai/native-ssh-command': self.native_ssh_command(app_name, ssh_username),
                 },
             ),
             spec=client.V1PodSpec(
                 restart_policy='Never',
+                dns_policy='None' if self.settings.k3s_devbox_dns_nameservers else 'ClusterFirst',
+                dns_config=self._devbox_dns_config(),
                 containers=[
                     client.V1Container(
                         name='devbox',
                         image=self.settings.k3s_devbox_image,
-                        command=self.settings.k3s_devbox_command,
+                        command=['/bin/bash', '-lc', startup_script],
+                        env=[
+                            client.V1EnvVar(name='USERNAME', value=ssh_username),
+                            client.V1EnvVar(
+                                name='PASSWORD',
+                                value_from=client.V1EnvVarSource(
+                                    secret_key_ref=client.V1SecretKeySelector(
+                                        name=f'{app_name}-connection',
+                                        key='connection_password',
+                                    )
+                                ),
+                            ),
+                        ],
                         ports=[
                             client.V1ContainerPort(
                                 name='http',
                                 container_port=3000,
-                            )
+                            ),
+                            client.V1ContainerPort(
+                                name='ssh',
+                                container_port=22,
+                            ),
                         ],
                         resources=client.V1ResourceRequirements(
                             requests=resource_value,
@@ -328,6 +429,50 @@ class K3SService:
                     )
                 ],
             ),
+        )
+
+    def _devbox_dns_config(self):
+        if not self.settings.k3s_devbox_dns_nameservers:
+            return None
+
+        from kubernetes import client
+
+        return client.V1PodDNSConfig(
+            nameservers=self.settings.k3s_devbox_dns_nameservers,
+            searches=[
+                'svc.cluster.local',
+                'cluster.local',
+            ],
+            options=[
+                client.V1PodDNSConfigOption(name='ndots', value='2'),
+            ],
+        )
+
+    def _devbox_startup_script(self) -> str:
+        app_command = shlex.join(self.settings.k3s_devbox_command)
+        return (
+            'set -e; '
+            'if id "$USERNAME" >/dev/null 2>&1; then '
+            '  echo "$USERNAME:$PASSWORD" | chpasswd; '
+            '  usermod -s /bin/bash "$USERNAME" 2>/dev/null || true; '
+            'else '
+            '  useradd -m -s /bin/bash "$USERNAME"; '
+            '  echo "$USERNAME:$PASSWORD" | chpasswd; '
+            'fi; '
+            'mkdir -p "/home/$USERNAME"; '
+            'chown "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true; '
+            'usermod -aG sudo "$USERNAME" 2>/dev/null || true; '
+            'ssh-keygen -A; '
+            'mkdir -p /run/sshd /var/run/sshd; '
+            'if [ -f /etc/ssh/sshd_config ]; then '
+            '  sed -i "s/^#\\?PasswordAuthentication .*/PasswordAuthentication yes/" /etc/ssh/sshd_config || true; '
+            '  grep -q "^PasswordAuthentication " /etc/ssh/sshd_config || printf "\\nPasswordAuthentication yes\\n" >> /etc/ssh/sshd_config; '
+            '  sed -i "s/^#\\?UsePAM .*/UsePAM no/" /etc/ssh/sshd_config || true; '
+            '  grep -q "^UsePAM " /etc/ssh/sshd_config || printf "UsePAM no\\n" >> /etc/ssh/sshd_config; '
+            'fi; '
+            '/usr/sbin/sshd -D -e & '
+            'SSHD_PID=$!; '
+            f'exec {app_command}'
         )
 
     def _connection_secret_body(self, app_name: str, connection_password: str):
@@ -368,6 +513,32 @@ class K3SService:
                         name='http',
                         port=80,
                         target_port=3000,
+                    )
+                ],
+            ),
+        )
+
+    def _ssh_service_body(self, app_name: str):
+        from kubernetes import client
+
+        return client.V1Service(
+            metadata=client.V1ObjectMeta(
+                name=f'{app_name}-ssh-svc',
+                labels={
+                    'app.kubernetes.io/managed-by': 'campus-ai',
+                    'campus-ai/app-name': app_name,
+                },
+            ),
+            spec=client.V1ServiceSpec(
+                type='ClusterIP',
+                selector={
+                    'campus-ai/app-name': app_name,
+                },
+                ports=[
+                    client.V1ServicePort(
+                        name='ssh',
+                        port=22,
+                        target_port=22,
                     )
                 ],
             ),
@@ -468,6 +639,10 @@ class K3SService:
                         lambda: self._core().delete_namespaced_service(name=f'{app_name}-svc', namespace=namespace),
                     ),
                     (
+                        f'service/{app_name}-ssh-svc',
+                        lambda: self._core().delete_namespaced_service(name=f'{app_name}-ssh-svc', namespace=namespace),
+                    ),
+                    (
                         f'secret/{app_name}-connection',
                         lambda: self._core().delete_namespaced_secret(name=f'{app_name}-connection', namespace=namespace),
                     ),
@@ -514,7 +689,17 @@ class K3SService:
             'status': status,
             'app_name': app_name,
             'url': annotations.get('campus-ai/public-url'),
+            'ssh_username': annotations.get('campus-ai/ssh-username'),
+            'webssh_url': K3SService._webssh_url_from_annotations(annotations, app_name),
+            'native_ssh_command': annotations.get('campus-ai/native-ssh-command'),
         }
+
+    @staticmethod
+    def _webssh_url_from_annotations(annotations: dict[str, str], app_name: str | None) -> str | None:
+        value = annotations.get('campus-ai/webssh-url')
+        if value:
+            return value
+        return None
 
     @staticmethod
     def _api_exception_class():

@@ -71,9 +71,19 @@ class Settings(BaseSettings):
     k3s_devbox_command: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: ['/bin/sh', '-c', 'sleep infinity']
     )
+    k3s_devbox_dns_nameservers: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['10.90.63.2', '10.90.63.3', '8.8.8.8']
+    )
     k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
     k3s_apps_path_prefix: str = '/apps'
     k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'
+
+    ssh_gateway_enabled: bool = True
+    ssh_gateway_host: str = '0.0.0.0'
+    ssh_gateway_port: int = 2222
+    ssh_gateway_public_host: str = '10.120.17.138'
+    ssh_gateway_host_key_path: str | None = None
+    webssh_public_path_prefix: str = '/ssh'
 
     @field_validator('cors_origins', mode='before')
     @classmethod
@@ -105,7 +115,14 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(',') if item.strip()]
         return value
 
-    @field_validator('k3s_apps_path_prefix', 'k3s_apps_public_base_url', mode='before')
+    @field_validator('k3s_devbox_dns_nameservers', mode='before')
+    @classmethod
+    def parse_k3s_devbox_dns_nameservers(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(',') if item.strip()]
+        return value
+
+    @field_validator('k3s_apps_path_prefix', 'k3s_apps_public_base_url', 'webssh_public_path_prefix', mode='before')
     @classmethod
     def normalize_k3s_apps_paths(cls, value):
         if isinstance(value, str):

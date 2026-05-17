@@ -18,7 +18,10 @@ function containerFromCreateResult(result) {
     image: result.image,
     status: result.status === 'creating' ? 'Pending' : result.status,
     app_name: result.app_name,
-    url: result.url
+    url: result.url,
+    ssh_username: result.ssh_username,
+    webssh_url: result.webssh_url,
+    native_ssh_command: result.native_ssh_command
   }
 }
 
@@ -101,7 +104,7 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
   )
 }
 
-function ContainerList({ containers, deletingPodName, loading, onDelete }) {
+function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDelete, onOpenWebSsh }) {
   if (loading) {
     return <div className="muted-card">正在加载容器…</div>
   }
@@ -126,6 +129,22 @@ function ContainerList({ containers, deletingPodName, loading, onDelete }) {
               </span>
             </div>
             <div className="container-row__actions">
+              <button
+                className="container-action-button"
+                type="button"
+                onClick={() => onOpenWebSsh(container)}
+                disabled={!container.webssh_url}
+              >
+                WebSSH
+              </button>
+              <button
+                className="container-action-button"
+                type="button"
+                onClick={() => onCopySsh(container)}
+                disabled={!container.native_ssh_command}
+              >
+                复制 SSH
+              </button>
               <button
                 className="container-delete-button"
                 type="button"
@@ -349,7 +368,7 @@ export default function DashboardPage() {
     } finally {
       setCreatingContainer(false)
     }
-  }, [appName, connectionPassword, loadContainers, resetApplyForm])
+  }, [appName, connectionPassword, pollContainersUntil, resetApplyForm])
 
   const handleDeleteContainer = useCallback(async (container) => {
     if (!container?.name) return
@@ -377,6 +396,21 @@ export default function DashboardPage() {
       setContainerError(err.message)
     } finally {
       setDeletingPodName('')
+    }
+  }, [])
+
+  const handleOpenWebSsh = useCallback((container) => {
+    if (!container?.webssh_url) return
+    window.open(container.webssh_url, '_blank', 'noopener,noreferrer')
+  }, [])
+
+  const handleCopySsh = useCallback(async (container) => {
+    if (!container?.native_ssh_command) return
+    setContainerError('')
+    try {
+      await navigator.clipboard.writeText(container.native_ssh_command)
+    } catch {
+      setContainerError(`复制失败，请手动复制：${container.native_ssh_command}`)
     }
   }, [])
 
@@ -414,7 +448,9 @@ export default function DashboardPage() {
               containers={visibleContainers}
               deletingPodName={deletingPodName}
               loading={containersLoading}
+              onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
+              onOpenWebSsh={handleOpenWebSsh}
             />
           ) : null}
         </section>

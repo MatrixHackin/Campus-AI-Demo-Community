@@ -58,3 +58,11 @@ export async function checkAppName(appName) {
   const query = new URLSearchParams({ app_name: appName }).toString()
   return request(`/k3s/apps/check-name?${query}`)
 }
+
+export function getWebSshSocketUrl(appName, sshUsername) {
+  const baseUrl = new URL(API_BASE_URL, window.location.origin)
+  baseUrl.protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+  baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/ssh/ws/${encodeURIComponent(appName)}/${encodeURIComponent(sshUsername)}`
+  baseUrl.search = ''
+  return baseUrl.toString()
+}

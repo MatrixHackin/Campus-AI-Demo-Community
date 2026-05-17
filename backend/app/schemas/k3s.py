@@ -11,6 +11,9 @@ class DevboxCreateResponse(BaseModel):
     namespace: str
     app_name: str
     url: str
+    ssh_username: str | None = None
+    webssh_url: str | None = None
+    native_ssh_command: str | None = None
     image: str
     cpu: str
     memory: str
@@ -24,6 +27,9 @@ class ContainerItem(BaseModel):
     status: str
     app_name: str | None = None
     url: str | None = None
+    ssh_username: str | None = None
+    webssh_url: str | None = None
+    native_ssh_command: str | None = None
 
 
 class ContainerListResponse(BaseModel):
