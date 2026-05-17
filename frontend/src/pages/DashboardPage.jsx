@@ -9,6 +9,18 @@ import {
 import AppShell from '../components/AppShell'
 
 const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
+const CONTAINER_REFRESH_INTERVAL_MS = 5000
+const CONTAINER_REFRESH_MAX_ATTEMPTS = 12
+
+function containerFromCreateResult(result) {
+  return {
+    name: result.pod_name,
+    image: result.image,
+    status: result.status === 'creating' ? 'Pending' : result.status,
+    app_name: result.app_name,
+    url: result.url
+  }
+}
 
 function formatDateTime(value) {
   if (!value) return '未知'
@@ -147,11 +159,7 @@ function ContainerApplyModal({
         <div className="modal-card__header">
           <div>
             <h2 id="container-apply-title">申请容器</h2>
-            <p>填写应用名称后，将创建 devbox 并暴露 3000 端口服务。</p>
           </div>
-          <button className="modal-close" type="button" onClick={onClose} aria-label="关闭" disabled={submitting}>
-            ×
-          </button>
         </div>
 
         <form className="modal-form" onSubmit={onSubmit}>
@@ -211,6 +219,7 @@ export default function DashboardPage() {
   const [creatingContainer, setCreatingContainer] = useState(false)
   const [containerError, setContainerError] = useState('')
   const [deletingPodName, setDeletingPodName] = useState('')
+  const [hiddenDeletingPods, setHiddenDeletingPods] = useState([])
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
   const [appName, setAppName] = useState('')
   const [connectionPassword, setConnectionPassword] = useState('')
@@ -230,16 +239,27 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const loadContainers = useCallback(async () => {
-    setContainersLoading(true)
+  const loadContainers = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) {
+      setContainersLoading(true)
+    }
     setContainersError('')
     try {
       const result = await getMyContainers()
       setContainersInfo(result)
+      setHiddenDeletingPods((prev) => {
+        if (!prev.length) return prev
+        const existingPodNames = new Set((result.containers || []).map((container) => container.name))
+        return prev.filter((podName) => existingPodNames.has(podName))
+      })
+      return result
     } catch (err) {
       setContainersError(err.message)
+      return null
     } finally {
-      setContainersLoading(false)
+      if (showLoading) {
+        setContainersLoading(false)
+      }
     }
   }, [])
 
@@ -247,6 +267,18 @@ export default function DashboardPage() {
     loadHarborImages()
     loadContainers()
   }, [loadHarborImages, loadContainers])
+
+  const pollContainersUntil = useCallback((shouldContinue, attempt = 1) => {
+    window.setTimeout(async () => {
+      const result = await loadContainers({ showLoading: false })
+      if (!result || attempt >= CONTAINER_REFRESH_MAX_ATTEMPTS) {
+        return
+      }
+      if (shouldContinue(result)) {
+        pollContainersUntil(shouldContinue, attempt + 1)
+      }
+    }, CONTAINER_REFRESH_INTERVAL_MS)
+  }, [loadContainers])
 
   const resetApplyForm = useCallback(() => {
     setAppName('')
@@ -295,13 +327,23 @@ export default function DashboardPage() {
         setApplyFormError(availability.message || '该应用名称已被使用')
         return
       }
-      await createDevboxContainer({
+      const createdContainer = await createDevboxContainer({
         app_name: normalizedAppName,
         connection_password: connectionPassword
       })
-      await loadContainers()
+      setContainersInfo((prev) => ({
+        namespace: createdContainer.namespace || prev?.namespace,
+        containers: [
+          containerFromCreateResult(createdContainer),
+          ...(prev?.containers || []).filter((container) => container.name !== createdContainer.pod_name)
+        ]
+      }))
       setIsApplyModalOpen(false)
       resetApplyForm()
+      pollContainersUntil((result) => {
+        const current = (result.containers || []).find((container) => container.name === createdContainer.pod_name)
+        return Boolean(current && ['Pending', 'Unknown'].includes(current.status))
+      })
     } catch (err) {
       setApplyFormError(err.message)
     } finally {
@@ -314,17 +356,29 @@ export default function DashboardPage() {
     const confirmed = window.confirm(`确定删除容器 ${container.name} 及其配套访问资源吗？`)
     if (!confirmed) return
 
+    let previousContainersInfo = null
     setDeletingPodName(container.name)
     setContainerError('')
+    setHiddenDeletingPods((prev) => (prev.includes(container.name) ? prev : [...prev, container.name]))
+    setContainersInfo((prev) => {
+      previousContainersInfo = prev
+      return {
+        ...prev,
+        containers: (prev?.containers || []).filter((item) => item.name !== container.name)
+      }
+    })
     try {
       await deleteContainer(container.name)
-      await loadContainers()
     } catch (err) {
+      setHiddenDeletingPods((prev) => prev.filter((podName) => podName !== container.name))
+      if (previousContainersInfo) {
+        setContainersInfo(previousContainersInfo)
+      }
       setContainerError(err.message)
     } finally {
       setDeletingPodName('')
     }
-  }, [loadContainers])
+  }, [])
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
@@ -333,6 +387,9 @@ export default function DashboardPage() {
   const publicMessage = !harborConfigured
     ? harborInfo?.message || 'Harbor 未配置'
     : harborInfo?.public_message
+  const visibleContainers = (containersInfo?.containers || []).filter(
+    (container) => !hiddenDeletingPods.includes(container.name)
+  )
 
   return (
     <AppShell>
@@ -354,7 +411,7 @@ export default function DashboardPage() {
           {containersError ? <div className="feedback feedback--error">{containersError}</div> : null}
           {!containersError ? (
             <ContainerList
-              containers={containersInfo?.containers || []}
+              containers={visibleContainers}
               deletingPodName={deletingPodName}
               loading={containersLoading}
               onDelete={handleDeleteContainer}
