@@ -157,6 +157,9 @@ SSH_GATEWAY_PORT=2222
 SSH_GATEWAY_PUBLIC_HOST=10.120.17.138
 SSH_GATEWAY_HOST_KEY_PATH=
 WEBSSH_PUBLIC_PATH_PREFIX=/ssh
+PUBLISHED_COVER_STORAGE_DIR=static/covers
+PUBLISHED_COVER_PUBLIC_PREFIX=/api/static/covers
+PUBLISHED_COVER_MAX_BYTES=1048576
 ```
 
 接口：
@@ -178,6 +181,10 @@ WEBSSH_PUBLIC_PATH_PREFIX=/ssh
 - `DELETE /api/v1/k3s/containers/{pod_name}`：删除当前登录用户 namespace 下的 Pod，并同步删除对应
   Secret、Web Service、SSH Service、Ingress 和 `containers` 表记录。
 - `WebSocket /api/v1/ssh/ws/{app_name}/{ssh_username}`：WebSSH 浏览器终端通道。
+- `GET /api/v1/community/apps`：应用市场列表。
+- `POST /api/v1/community/apps/{pod_name}/publish`：发布当前用户容器到应用市场，表单字段为
+  `app_description` 和可选 `cover`；前端会先压缩封面，后端再限制文件大小。
+- `DELETE /api/v1/community/apps/{pod_name}/publish`：取消发布当前用户应用。
 
 说明：
 
@@ -204,6 +211,8 @@ WEBSSH_PUBLIC_PATH_PREFIX=/ssh
   原生 SSH 客户端提示服务端 HostKey 变化。
 - 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
   base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
+- 应用市场封面第一版保存在后端本地 `PUBLISHED_COVER_STORAGE_DIR`，数据库只保存 URL；如果后续图片量变大，
+  建议替换为图床或对象存储，并只在 `published_apps.cover_url` 中保存外部 URL。
 - demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。
 
 ## 已知限制与后续优化

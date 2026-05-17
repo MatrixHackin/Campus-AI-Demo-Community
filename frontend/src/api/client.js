@@ -21,6 +21,22 @@ async function request(path, options = {}) {
   return data
 }
 
+async function requestForm(path, formData, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: 'include',
+    ...options,
+    body: formData
+  })
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data.detail || '请求失败，请稍后重试')
+  }
+
+  return data
+}
+
 export async function login(payload) {
   return request('/auth/login', {
     method: 'POST',
@@ -57,6 +73,27 @@ export async function deleteContainer(podName) {
 export async function checkAppName(appName) {
   const query = new URLSearchParams({ app_name: appName }).toString()
   return request(`/k3s/apps/check-name?${query}`)
+}
+
+export async function getPublishedApps() {
+  return request('/community/apps')
+}
+
+export async function publishApp(podName, { appDescription, cover }) {
+  const formData = new FormData()
+  formData.append('app_description', appDescription)
+  if (cover) {
+    formData.append('cover', cover, cover.name || 'cover.webp')
+  }
+  return requestForm(`/community/apps/${encodeURIComponent(podName)}/publish`, formData, {
+    method: 'POST'
+  })
+}
+
+export async function unpublishApp(podName) {
+  return request(`/community/apps/${encodeURIComponent(podName)}/publish`, {
+    method: 'DELETE'
+  })
 }
 
 export function getWebSshSocketUrl(appName, sshUsername) {

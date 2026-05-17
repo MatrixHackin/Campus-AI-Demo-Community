@@ -85,6 +85,10 @@ class Settings(BaseSettings):
     ssh_gateway_host_key_path: str | None = None
     webssh_public_path_prefix: str = '/ssh'
 
+    published_cover_storage_dir: str = 'static/covers'
+    published_cover_public_prefix: str = '/api/static/covers'
+    published_cover_max_bytes: int = 1024 * 1024
+
     @field_validator('cors_origins', mode='before')
     @classmethod
     def parse_cors_origins(cls, value):
@@ -122,7 +126,13 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(',') if item.strip()]
         return value
 
-    @field_validator('k3s_apps_path_prefix', 'k3s_apps_public_base_url', 'webssh_public_path_prefix', mode='before')
+    @field_validator(
+        'k3s_apps_path_prefix',
+        'k3s_apps_public_base_url',
+        'webssh_public_path_prefix',
+        'published_cover_public_prefix',
+        mode='before',
+    )
     @classmethod
     def normalize_k3s_apps_paths(cls, value):
         if isinstance(value, str):

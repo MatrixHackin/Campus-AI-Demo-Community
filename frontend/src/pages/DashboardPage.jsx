@@ -4,13 +4,16 @@ import {
   createDevboxContainer,
   deleteContainer,
   getMyContainers,
-  getMyHarborImages
+  getMyHarborImages,
+  publishApp,
+  unpublishApp
 } from '../api/client'
 import AppShell from '../components/AppShell'
 
 const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 const CONTAINER_REFRESH_INTERVAL_MS = 5000
 const CONTAINER_REFRESH_MAX_ATTEMPTS = 12
+const COVER_MAX_UPLOAD_BYTES = 512 * 1024
 
 function containerFromCreateResult(result) {
   return {
@@ -21,8 +24,59 @@ function containerFromCreateResult(result) {
     url: result.url,
     ssh_username: result.ssh_username,
     webssh_url: result.webssh_url,
-    native_ssh_command: result.native_ssh_command
+    native_ssh_command: result.native_ssh_command,
+    is_published: false
   }
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const image = new Image()
+    image.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('封面图片读取失败'))
+    }
+    image.src = url
+  })
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => {
+    canvas.toBlob(resolve, type, quality)
+  })
+}
+
+async function compressCoverImage(file) {
+  if (!file) return null
+  if (!file.type.startsWith('image/')) {
+    throw new Error('封面必须是图片文件')
+  }
+
+  const image = await loadImage(file)
+  const maxWidth = 960
+  const maxHeight = 540
+  const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height)
+  const width = Math.max(1, Math.round(image.width * scale))
+  const height = Math.max(1, Math.round(image.height * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  context.drawImage(image, 0, 0, width, height)
+
+  for (const quality of [0.78, 0.68, 0.58, 0.48]) {
+    const blob = await canvasToBlob(canvas, 'image/webp', quality)
+    if (blob && blob.size <= COVER_MAX_UPLOAD_BYTES) {
+      return new File([blob], 'cover.webp', { type: 'image/webp' })
+    }
+  }
+
+  throw new Error('封面压缩后仍过大，请更换更轻量的图片')
 }
 
 function formatDateTime(value) {
@@ -104,7 +158,18 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
   )
 }
 
-function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDelete, onOpenApp, onOpenWebSsh }) {
+function ContainerList({
+  containers,
+  deletingPodName,
+  loading,
+  publishingPodName,
+  onCopySsh,
+  onDelete,
+  onOpenApp,
+  onOpenPublish,
+  onOpenWebSsh,
+  onUnpublish
+}) {
   if (loading) {
     return <div className="muted-card">正在加载容器…</div>
   }
@@ -117,13 +182,14 @@ function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDele
     <div className="container-list" aria-label="我的容器">
       {containers.map((container) => {
         const imageName = imageNameFromRef(container.image)
+        const displayName = container.app_name || container.name
         return (
           <div className="container-row" key={container.name}>
             <span className="container-row__image" title={container.image || imageName} aria-hidden="true">
               <span>{imageName.slice(0, 1).toUpperCase()}</span>
             </span>
             <div className="container-row__main">
-              <strong>{container.name}</strong>
+              <strong title={container.name}>{displayName}</strong>
               <span className={`container-status container-status--${container.status?.toLowerCase() || 'unknown'}`}>
                 {statusText(container.status)}
               </span>
@@ -154,6 +220,14 @@ function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDele
                 复制 SSH
               </button>
               <button
+                className={`container-publish-button${container.is_published ? ' container-publish-button--published' : ''}`}
+                type="button"
+                onClick={() => (container.is_published ? onUnpublish(container) : onOpenPublish(container))}
+                disabled={publishingPodName === container.name || !container.app_name}
+              >
+                {container.is_published ? '取消发布' : '发布'}
+              </button>
+              <button
                 className="container-delete-button"
                 type="button"
                 onClick={() => onDelete(container)}
@@ -165,6 +239,76 @@ function ContainerList({ containers, deletingPodName, loading, onCopySsh, onDele
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function PublishAppModal({
+  app,
+  description,
+  coverFile,
+  error,
+  submitting,
+  onClose,
+  onCoverChange,
+  onDescriptionChange,
+  onSubmit
+}) {
+  if (!app) return null
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="modal-card publish-modal-card" role="dialog" aria-modal="true" aria-labelledby="publish-title">
+        <div className="modal-card__header">
+          <div>
+            <h2 id="publish-title">发布应用</h2>
+            <p>发布后将在应用市场展示为应用卡片。</p>
+          </div>
+        </div>
+
+        <form className="modal-form" onSubmit={onSubmit}>
+          <label>
+            <span>应用名称</span>
+            <input type="text" value={app.app_name || app.name} disabled />
+          </label>
+
+          <label>
+            <span>应用描述</span>
+            <textarea
+              value={description}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              placeholder="简要说明这个应用能做什么、适合谁使用"
+              maxLength={800}
+              disabled={submitting}
+              required
+            />
+            <small>{description.length}/800</small>
+          </label>
+
+          <label>
+            <span>封面图片</span>
+            <input type="file" accept="image/*" onChange={onCoverChange} disabled={submitting} />
+            <small>前端会先压缩为轻量 WebP 图片；第一版存储在后端本地，后续可切换图床/对象存储。</small>
+          </label>
+
+          <p className="publish-cover-note">
+            {coverFile
+              ? `已选择封面，压缩后约 ${Math.max(1, Math.round(coverFile.size / 1024))} KB。`
+              : '未上传封面时，应用市场会使用默认渐变封面。'}
+          </p>
+
+          {error ? <div className="feedback feedback--error">{error}</div> : null}
+
+          <div className="modal-actions">
+            <button className="btn btn--ghost" type="button" onClick={onClose} disabled={submitting}>
+              取消
+            </button>
+            <button className="btn btn--primary" type="submit" disabled={submitting}>
+              {submitting ? '发布中…' : '确认发布'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }
@@ -252,6 +396,11 @@ export default function DashboardPage() {
   const [connectionPassword, setConnectionPassword] = useState('')
   const [appNameCheck, setAppNameCheck] = useState(null)
   const [applyFormError, setApplyFormError] = useState('')
+  const [publishTarget, setPublishTarget] = useState(null)
+  const [publishDescription, setPublishDescription] = useState('')
+  const [publishCoverFile, setPublishCoverFile] = useState(null)
+  const [publishError, setPublishError] = useState('')
+  const [publishingPodName, setPublishingPodName] = useState('')
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -427,6 +576,86 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const handleOpenPublishModal = useCallback((container) => {
+    setPublishTarget(container)
+    setPublishDescription('')
+    setPublishCoverFile(null)
+    setPublishError('')
+  }, [])
+
+  const handleClosePublishModal = useCallback(() => {
+    if (publishingPodName) return
+    setPublishTarget(null)
+    setPublishDescription('')
+    setPublishCoverFile(null)
+    setPublishError('')
+  }, [publishingPodName])
+
+  const handlePublishCoverChange = useCallback(async (event) => {
+    const file = event.target.files?.[0]
+    setPublishError('')
+    setPublishCoverFile(null)
+    if (!file) return
+    try {
+      const compressed = await compressCoverImage(file)
+      setPublishCoverFile(compressed)
+    } catch (err) {
+      setPublishError(err.message)
+    }
+  }, [])
+
+  const markContainerPublished = useCallback((podName, isPublished) => {
+    setContainersInfo((prev) => ({
+      ...prev,
+      containers: (prev?.containers || []).map((container) => (
+        container.name === podName ? { ...container, is_published: isPublished } : container
+      ))
+    }))
+  }, [])
+
+  const handlePublishSubmit = useCallback(async (event) => {
+    event.preventDefault()
+    if (!publishTarget?.name) return
+    if (!publishDescription.trim()) {
+      setPublishError('请填写应用描述')
+      return
+    }
+
+    setPublishingPodName(publishTarget.name)
+    setPublishError('')
+    try {
+      await publishApp(publishTarget.name, {
+        appDescription: publishDescription.trim(),
+        cover: publishCoverFile
+      })
+      markContainerPublished(publishTarget.name, true)
+      setPublishTarget(null)
+      setPublishDescription('')
+      setPublishCoverFile(null)
+    } catch (err) {
+      setPublishError(err.message)
+    } finally {
+      setPublishingPodName('')
+    }
+  }, [markContainerPublished, publishCoverFile, publishDescription, publishTarget])
+
+  const handleUnpublish = useCallback(async (container) => {
+    if (!container?.name) return
+    const confirmed = window.confirm(`确定取消发布应用 ${container.app_name || container.name} 吗？`)
+    if (!confirmed) return
+
+    setPublishingPodName(container.name)
+    setContainerError('')
+    try {
+      await unpublishApp(container.name)
+      markContainerPublished(container.name, false)
+    } catch (err) {
+      setContainerError(err.message)
+    } finally {
+      setPublishingPodName('')
+    }
+  }, [markContainerPublished])
+
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
     ? harborInfo?.message || 'Harbor 未配置'
@@ -461,10 +690,13 @@ export default function DashboardPage() {
               containers={visibleContainers}
               deletingPodName={deletingPodName}
               loading={containersLoading}
+              publishingPodName={publishingPodName}
               onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
               onOpenApp={handleOpenApp}
+              onOpenPublish={handleOpenPublishModal}
               onOpenWebSsh={handleOpenWebSsh}
+              onUnpublish={handleUnpublish}
             />
           ) : null}
         </section>
@@ -517,6 +749,17 @@ export default function DashboardPage() {
           onSubmit={handleCreateContainer}
         />
       ) : null}
+      <PublishAppModal
+        app={publishTarget}
+        description={publishDescription}
+        coverFile={publishCoverFile}
+        error={publishError}
+        submitting={Boolean(publishingPodName)}
+        onClose={handleClosePublishModal}
+        onCoverChange={handlePublishCoverChange}
+        onDescriptionChange={setPublishDescription}
+        onSubmit={handlePublishSubmit}
+      />
     </AppShell>
   )
 }

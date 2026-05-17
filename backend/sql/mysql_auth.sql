@@ -53,23 +53,24 @@ CREATE TABLE IF NOT EXISTS containers (
 
 CREATE TABLE IF NOT EXISTS published_apps (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  owner_id BIGINT UNSIGNED NOT NULL,
   pod_name VARCHAR(255) NOT NULL,
   app_name VARCHAR(255) NOT NULL,
   app_description TEXT NULL,
-  cover_url TEXT NOT NULL,
-  app_port INT UNSIGNED NOT NULL,
+  cover_url TEXT NULL,
+  app_url TEXT NOT NULL,
+  app_port INT UNSIGNED NOT NULL DEFAULT 3000,
+  owner_username VARCHAR(255) NOT NULL,
+  owner_display_name VARCHAR(255) NULL,
+  auth_provider VARCHAR(32) NOT NULL DEFAULT 'local',
   visit_count INT NOT NULL DEFAULT 0,
   published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_published_apps_pod_name (pod_name),
-  KEY idx_published_apps_owner_id (owner_id),
+  UNIQUE KEY uk_published_apps_app_name (app_name),
+  KEY idx_published_apps_owner_username (owner_username),
   KEY idx_published_apps_pod_name (pod_name),
-  CONSTRAINT fk_published_apps_owner
-    FOREIGN KEY (owner_id) REFERENCES users (id)
-    ON DELETE CASCADE
-    ON UPDATE CASCADE
+  KEY idx_published_apps_published_at (published_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `log` (

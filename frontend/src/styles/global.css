@@ -836,10 +836,39 @@ button {
   background: rgba(255, 255, 255, 0.68);
 }
 
+.container-publish-button {
+  min-height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(21, 184, 119, 0.2);
+  background: rgba(21, 184, 119, 0.1);
+  color: #0f8a52;
+  padding: 0 13px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 760;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.container-publish-button--published {
+  border-color: rgba(180, 35, 58, 0.16);
+  color: var(--danger-text);
+  background: rgba(255, 255, 255, 0.68);
+}
+
 .container-action-button:hover:not(:disabled) {
   transform: translateY(-1px);
   background: rgba(47, 125, 246, 0.08);
   box-shadow: 0 12px 24px rgba(47, 125, 246, 0.1);
+}
+
+.container-publish-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(21, 184, 119, 0.12);
+}
+
+.container-publish-button--published:hover:not(:disabled) {
+  background: var(--danger-bg);
+  box-shadow: 0 12px 24px rgba(180, 35, 58, 0.1);
 }
 
 .container-delete-button:hover:not(:disabled) {
@@ -849,6 +878,7 @@ button {
 }
 
 .container-action-button:disabled,
+.container-publish-button:disabled,
 .container-delete-button:disabled {
   cursor: not-allowed;
   opacity: 0.58;
@@ -942,7 +972,8 @@ button {
   font-weight: 760;
 }
 
-.modal-form input {
+.modal-form input,
+.modal-form textarea {
   width: 100%;
   min-height: 48px;
   border-radius: 16px;
@@ -954,7 +985,16 @@ button {
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
-.modal-form input:focus {
+.modal-form textarea {
+  min-height: 120px;
+  padding-top: 13px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.modal-form input:focus,
+.modal-form textarea:focus {
   border-color: rgba(47, 125, 246, 0.62);
   box-shadow: 0 0 0 4px rgba(47, 125, 246, 0.12);
   background: #ffffff;
@@ -971,6 +1011,17 @@ button {
   justify-content: flex-end;
   gap: 10px;
   padding-top: 4px;
+}
+
+.publish-modal-card {
+  width: min(100%, 620px);
+}
+
+.publish-cover-note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.6;
 }
 
 .webssh-panel {
@@ -1128,6 +1179,118 @@ button {
 
 .section-heading p {
   color: var(--muted);
+}
+
+.market-panel {
+  display: grid;
+  gap: 24px;
+  padding: clamp(22px, 4vw, 36px);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(22px);
+}
+
+.market-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.market-app-card {
+  overflow: hidden;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 18px 45px rgba(22, 46, 79, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.market-app-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 26px 60px rgba(22, 46, 79, 0.15);
+}
+
+.market-app-card__cover {
+  height: 172px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.82), transparent 32%),
+    linear-gradient(135deg, rgba(47, 125, 246, 0.12), rgba(112, 166, 255, 0.28));
+}
+
+.market-app-card__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  padding: 10px;
+}
+
+.market-app-card__cover-fallback {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 255, 255, 0.86), transparent 30%),
+    linear-gradient(135deg, rgba(47, 125, 246, 0.28), rgba(112, 166, 255, 0.56));
+}
+
+.market-app-card__cover-fallback span {
+  width: 74px;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  border-radius: 24px;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--brand), #173b78);
+  font-size: 2rem;
+  font-weight: 850;
+}
+
+.market-app-card__body {
+  min-height: 210px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px;
+}
+
+.market-app-card__body h2 {
+  color: var(--ink);
+  font-size: 1.2rem;
+  letter-spacing: -0.025em;
+}
+
+.market-app-card__body p {
+  margin-top: 10px;
+  color: #405269;
+  font-size: 0.92rem;
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.market-app-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.market-app-card__footer span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .muted-card {

@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
+from app.services.publication_repository import PublicationRepository
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class K3SService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
+        self.publication_repository = PublicationRepository(settings)
         self._core_v1 = None
         self._networking_v1 = None
 
@@ -202,9 +204,19 @@ class K3SService:
             logger.warning('K3s namespace %s 容器查询异常：%s', namespace, exc)
             raise RuntimeError(f'查询容器失败：{exc}') from exc
 
+        containers = [self._container_item_from_pod(pod) for pod in pods]
+        try:
+            published_pod_names = self.publication_repository.get_published_pod_names(
+                [container['name'] for container in containers if container.get('name')]
+            )
+            for container in containers:
+                container['is_published'] = container.get('name') in published_pod_names
+        except Exception as exc:
+            logger.warning('查询容器发布状态失败：%s', exc)
+
         return {
             'namespace': namespace,
-            'containers': [self._container_item_from_pod(pod) for pod in pods],
+            'containers': containers,
         }
 
     def delete_user_container(self, emp_id: str | None, username: str, pod_name: str) -> dict[str, Any]:
@@ -237,6 +249,10 @@ class K3SService:
             raise RuntimeError(f'查询容器失败：{exc}') from exc
 
         self._delete_app_resources(namespace=namespace, pod_name=pod_name, app_name=app_name, strict=True)
+        try:
+            self.publication_repository.delete_by_pod_name(pod_name)
+        except Exception as exc:
+            logger.warning('删除容器 %s 时取消发布记录失败，跳过：%s', pod_name, exc)
         self.container_repository.delete_container_record(pod_name=pod_name)
         return {
             'pod_name': pod_name,
@@ -692,6 +708,7 @@ class K3SService:
             'ssh_username': annotations.get('campus-ai/ssh-username'),
             'webssh_url': K3SService._webssh_url_from_annotations(annotations, app_name),
             'native_ssh_command': annotations.get('campus-ai/native-ssh-command'),
+            'is_published': False,
         }
 
     @staticmethod

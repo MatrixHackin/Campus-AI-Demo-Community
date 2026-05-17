@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext'
 
 const navItems = [
   { to: '/dashboard', label: '工作台' },
-  { to: '/community', label: '应用社区' },
+  { to: '/community', label: '应用市场' },
   { to: '/my-apps', label: '我的应用' },
   { to: '/manual', label: '开发手册' }
 ]

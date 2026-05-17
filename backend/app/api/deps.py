@@ -4,6 +4,7 @@ from app.core.config import get_settings
 from app.services.auth_service import AuthService
 from app.services.harbor_service import HarborService
 from app.services.k3s_service import K3SService
+from app.services.publication_service import PublicationService
 from app.services.ssh_gateway_service import SSHGatewayService
 from app.services.sso_service import SSOService
 from app.services.sso_user_service import SSOUserRepository
@@ -15,6 +16,7 @@ auth_service = AuthService(settings=settings, token_store=token_store)
 harbor_service = HarborService(settings=settings)
 k3s_service = K3SService(settings=settings)
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
+publication_service = PublicationService(settings=settings)
 sso_service = SSOService(settings=settings)
 sso_user_repository = SSOUserRepository(settings=settings)
 
@@ -37,6 +39,10 @@ def get_k3s_service() -> K3SService:
 
 def get_ssh_gateway_service() -> SSHGatewayService:
     return ssh_gateway_service
+
+
+def get_publication_service() -> PublicationService:
+    return publication_service
 
 
 def get_sso_service() -> SSOService:

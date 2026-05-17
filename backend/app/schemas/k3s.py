@@ -14,6 +14,7 @@ class DevboxCreateResponse(BaseModel):
     ssh_username: str | None = None
     webssh_url: str | None = None
     native_ssh_command: str | None = None
+    is_published: bool = False
     image: str
     cpu: str
     memory: str
@@ -30,6 +31,7 @@ class ContainerItem(BaseModel):
     ssh_username: str | None = None
     webssh_url: str | None = None
     native_ssh_command: str | None = None
+    is_published: bool = False
 
 
 class ContainerListResponse(BaseModel):
