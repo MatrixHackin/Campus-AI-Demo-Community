@@ -63,14 +63,28 @@ CREATE TABLE IF NOT EXISTS published_apps (
   owner_display_name VARCHAR(255) NULL,
   auth_provider VARCHAR(32) NOT NULL DEFAULT 'local',
   visit_count INT NOT NULL DEFAULT 0,
+  like_count INT NOT NULL DEFAULT 0,
+  is_published BOOLEAN NOT NULL DEFAULT TRUE,
   published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_published_apps_pod_name (pod_name),
   UNIQUE KEY uk_published_apps_app_name (app_name),
   KEY idx_published_apps_owner_username (owner_username),
+  KEY idx_published_apps_is_published (is_published),
   KEY idx_published_apps_pod_name (pod_name),
   KEY idx_published_apps_published_at (published_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS published_app_likes (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  publication_id BIGINT UNSIGNED NOT NULL,
+  user_key VARCHAR(255) NOT NULL,
+  username VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_like_publication_user (publication_id, user_key),
+  KEY idx_likes_publication_id (publication_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `log` (

@@ -11,6 +11,8 @@ class PublishedAppItem(BaseModel):
     owner_username: str
     owner_display_name: str | None = None
     visit_count: int = 0
+    like_count: int = 0
+    is_liked: bool = False
     published_at: str | None = None
     updated_at: str | None = None
 

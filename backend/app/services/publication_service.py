@@ -20,9 +20,12 @@ class PublicationService:
         self.container_repository = ContainerRepository(settings)
         self.repository = PublicationRepository(settings)
 
-    def list_public_apps(self) -> dict:
+    def list_public_apps(self, session: SessionRecord | None = None) -> dict:
         return {
-            'apps': [self._serialize(row) for row in self.repository.list_public_apps()],
+            'apps': [
+                self._serialize(row)
+                for row in self.repository.list_public_apps(user_key=self._user_key(session) if session else None)
+            ],
         }
 
     def publish_app(
@@ -77,7 +80,7 @@ class PublicationService:
             return None
         if row.get('owner_username') != session.username:
             raise PermissionError('无权取消发布该应用')
-        deleted = self.repository.delete_by_pod_name(pod_name)
+        deleted = self.repository.delete_by_pod_name(pod_name, delete_likes=False)
         if deleted and deleted.get('cover_url'):
             self.delete_cover_by_url(deleted['cover_url'])
         return self._serialize(deleted) if deleted else None
@@ -86,6 +89,18 @@ class PublicationService:
         if publication_id <= 0:
             raise ValueError('应用 ID 不合法')
         row = self.repository.increment_visit_count(publication_id)
+        if not row:
+            raise FileNotFoundError('未找到发布应用')
+        return self._serialize(row)
+
+    def toggle_like(self, publication_id: int, session: SessionRecord) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        row = self.repository.toggle_like(
+            publication_id=publication_id,
+            user_key=self._user_key(session),
+            username=session.username,
+        )
         if not row:
             raise FileNotFoundError('未找到发布应用')
         return self._serialize(row)
@@ -132,6 +147,10 @@ class PublicationService:
         return path
 
     @staticmethod
+    def _user_key(session: SessionRecord) -> str:
+        return session.user_id or f'{session.auth_provider}:{session.username}'
+
+    @staticmethod
     def _serialize(row: dict) -> dict:
         return {
             'id': int(row['id']),
@@ -143,6 +162,8 @@ class PublicationService:
             'owner_username': row['owner_username'],
             'owner_display_name': row.get('owner_display_name'),
             'visit_count': row.get('visit_count') or 0,
+            'like_count': row.get('like_count') or 0,
+            'is_liked': bool(row.get('is_liked')),
             'published_at': row.get('published_at').isoformat() if row.get('published_at') else None,
             'updated_at': row.get('updated_at').isoformat() if row.get('updated_at') else None,
         }

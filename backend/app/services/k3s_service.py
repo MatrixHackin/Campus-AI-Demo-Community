@@ -306,7 +306,7 @@ class K3SService:
 
         self._delete_app_resources(namespace=namespace, pod_name=pod_name, app_name=app_name, strict=True)
         try:
-            self.publication_repository.delete_by_pod_name(pod_name)
+            self.publication_repository.delete_by_pod_name(pod_name, delete_likes=True)
         except Exception as exc:
             logger.warning('删除容器 %s 时取消发布记录失败，跳过：%s', pod_name, exc)
         self.container_repository.delete_container_record(pod_name=pod_name)

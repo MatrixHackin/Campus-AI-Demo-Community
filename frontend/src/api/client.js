@@ -104,6 +104,12 @@ export async function recordAppVisit(publicationId) {
   })
 }
 
+export async function toggleAppLike(publicationId) {
+  return request(`/community/apps/${encodeURIComponent(publicationId)}/like`, {
+    method: 'POST'
+  })
+}
+
 export async function publishApp(podName, { appDescription, cover }) {
   const formData = new FormData()
   formData.append('app_description', appDescription)

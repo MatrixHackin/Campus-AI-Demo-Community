@@ -22,32 +22,66 @@ class PublicationRepository:
     def _table_name() -> str:
         return validate_table_name('published_apps', '发布应用表名')
 
+    @staticmethod
+    def _likes_table_name() -> str:
+        return validate_table_name('published_app_likes', '应用点赞表名')
+
     def _connect(self):
         return connect_mysql(self.settings)
 
-    def list_public_apps(self) -> list[dict]:
+    def list_public_apps(self, user_key: str | None = None) -> list[dict]:
         table_name = self._table_name()
+        likes_table_name = self._likes_table_name()
         connection = self._connect()
         try:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    f'''
-                    SELECT
-                      id,
-                      pod_name,
-                      app_name,
-                      app_description,
-                      cover_url,
-                      app_url,
-                      owner_username,
-                      owner_display_name,
-                      visit_count,
-                      published_at,
-                      updated_at
-                    FROM `{table_name}`
-                    ORDER BY published_at DESC, id DESC
-                    '''
-                )
+                if user_key:
+                    cursor.execute(
+                        f'''
+                        SELECT
+                          app.id,
+                          app.pod_name,
+                          app.app_name,
+                          app.app_description,
+                          app.cover_url,
+                          app.app_url,
+                          app.owner_username,
+                          app.owner_display_name,
+                          app.visit_count,
+                          app.like_count,
+                          CASE WHEN liked.id IS NULL THEN 0 ELSE 1 END AS is_liked,
+                          app.published_at,
+                          app.updated_at
+                        FROM `{table_name}` app
+                        LEFT JOIN `{likes_table_name}` liked
+                          ON liked.publication_id = app.id AND liked.user_key = %s
+                        WHERE app.is_published = 1
+                        ORDER BY app.published_at DESC, app.id DESC
+                        ''',
+                        (user_key,),
+                    )
+                else:
+                    cursor.execute(
+                        f'''
+                        SELECT
+                          id,
+                          pod_name,
+                          app_name,
+                          app_description,
+                          cover_url,
+                          app_url,
+                          owner_username,
+                          owner_display_name,
+                          visit_count,
+                          like_count,
+                          0 AS is_liked,
+                          published_at,
+                          updated_at
+                        FROM `{table_name}`
+                        WHERE is_published = 1
+                        ORDER BY published_at DESC, id DESC
+                        '''
+                    )
                 return list(cursor.fetchall())
         finally:
             connection.close()
@@ -69,6 +103,8 @@ class PublicationRepository:
                       owner_username,
                       owner_display_name,
                       visit_count,
+                      like_count,
+                      0 AS is_liked,
                       published_at,
                       updated_at
                     FROM `{table_name}`
@@ -94,7 +130,7 @@ class PublicationRepository:
                     f'''
                     SELECT pod_name
                     FROM `{table_name}`
-                    WHERE pod_name IN ({placeholders})
+                    WHERE pod_name IN ({placeholders}) AND is_published = 1
                     ''',
                     tuple(pod_names),
                 )
@@ -143,6 +179,7 @@ class PublicationRepository:
                       owner_username = VALUES(owner_username),
                       owner_display_name = VALUES(owner_display_name),
                       auth_provider = VALUES(auth_provider),
+                      is_published = 1,
                       updated_at = CURRENT_TIMESTAMP,
                       id = LAST_INSERT_ID(id)
                     ''',
@@ -188,10 +225,12 @@ class PublicationRepository:
                       owner_username,
                       owner_display_name,
                       visit_count,
+                      like_count,
+                      0 AS is_liked,
                       published_at,
                       updated_at
                     FROM `{table_name}`
-                    WHERE id = %s
+                    WHERE id = %s AND is_published = 1
                     LIMIT 1
                     ''',
                     (publication_id,),
@@ -218,22 +257,115 @@ class PublicationRepository:
 
         return self.get_by_id(publication_id)
 
-    def delete_by_pod_name(self, pod_name: str) -> dict | None:
+    def toggle_like(self, publication_id: int, user_key: str, username: str | None) -> dict | None:
+        table_name = self._table_name()
+        likes_table_name = self._likes_table_name()
+        connection = self._connect()
+        is_liked = False
+        try:
+            connection.begin()
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f'''
+                    SELECT id
+                    FROM `{table_name}`
+                    WHERE id = %s AND is_published = 1
+                    LIMIT 1
+                    FOR UPDATE
+                    ''',
+                    (publication_id,),
+                )
+                if not cursor.fetchone():
+                    return None
+
+                cursor.execute(
+                    f'''
+                    DELETE FROM `{likes_table_name}`
+                    WHERE publication_id = %s AND user_key = %s
+                    ''',
+                    (publication_id, user_key),
+                )
+                if cursor.rowcount:
+                    cursor.execute(
+                        f'''
+                        UPDATE `{table_name}`
+                        SET like_count = GREATEST(like_count - 1, 0)
+                        WHERE id = %s
+                        ''',
+                        (publication_id,),
+                    )
+                else:
+                    cursor.execute(
+                        f'''
+                        INSERT INTO `{likes_table_name}` (
+                          publication_id,
+                          user_key,
+                          username
+                        ) VALUES (
+                          %s,
+                          %s,
+                          %s
+                        )
+                        ''',
+                        (publication_id, user_key, username),
+                    )
+                    cursor.execute(
+                        f'''
+                        UPDATE `{table_name}`
+                        SET like_count = like_count + 1
+                        WHERE id = %s
+                        ''',
+                        (publication_id,),
+                    )
+                    is_liked = True
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+        row = self.get_by_id(publication_id)
+        if row:
+            row['is_liked'] = is_liked
+        return row
+
+    def delete_by_pod_name(self, pod_name: str, delete_likes: bool = False) -> dict | None:
         row = self.get_by_pod_name(pod_name)
         if not row:
             return None
 
         table_name = self._table_name()
+        likes_table_name = self._likes_table_name()
         connection = self._connect()
         try:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    f'''
-                    DELETE FROM `{table_name}`
-                    WHERE pod_name = %s
-                    ''',
-                    (pod_name,),
-                )
+                if delete_likes:
+                    cursor.execute(
+                        f'''
+                        DELETE FROM `{likes_table_name}`
+                        WHERE publication_id = %s
+                        ''',
+                        (row['id'],),
+                    )
+                    cursor.execute(
+                        f'''
+                        DELETE FROM `{table_name}`
+                        WHERE pod_name = %s
+                        ''',
+                        (pod_name,),
+                    )
+                else:
+                    cursor.execute(
+                        f'''
+                        UPDATE `{table_name}`
+                        SET is_published = 0,
+                            cover_url = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE pod_name = %s
+                        ''',
+                        (pod_name,),
+                    )
         finally:
             connection.close()
 
