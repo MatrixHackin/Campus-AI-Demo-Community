@@ -9,6 +9,8 @@ from app.services.container_repository import ContainerRepository
 from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
 
+APP_DESCRIPTION_MAX_LENGTH = 40
+
 
 class PublicationService:
     def __init__(self, settings: Settings) -> None:
@@ -32,9 +34,9 @@ class PublicationService:
     ) -> dict:
         description = app_description.strip()
         if not description:
-            raise ValueError('请填写应用描述')
-        if len(description) > 800:
-            raise ValueError('应用描述最多 800 个字符')
+            raise ValueError('请填写应用简述')
+        if len(description) > APP_DESCRIPTION_MAX_LENGTH:
+            raise ValueError(f'应用简述最多 {APP_DESCRIPTION_MAX_LENGTH} 个字符')
 
         record = self.container_repository.get_container_record(pod_name=pod_name)
         if not record:
@@ -77,6 +79,14 @@ class PublicationService:
         if deleted and deleted.get('cover_url'):
             self.delete_cover_by_url(deleted['cover_url'])
         return self._serialize(deleted) if deleted else None
+
+    def record_visit(self, publication_id: int) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        row = self.repository.increment_visit_count(publication_id)
+        if not row:
+            raise FileNotFoundError('未找到发布应用')
+        return self._serialize(row)
 
     def delete_cover_by_url(self, cover_url: str | None) -> None:
         if not cover_url:

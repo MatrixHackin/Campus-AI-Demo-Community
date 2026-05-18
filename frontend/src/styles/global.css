@@ -1213,7 +1213,7 @@ button {
 }
 
 .market-app-card__cover {
-  height: 172px;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   display: grid;
   place-items: center;
@@ -1227,7 +1227,6 @@ button {
   height: 100%;
   object-fit: contain;
   display: block;
-  padding: 10px;
 }
 
 .market-app-card__cover-fallback {
@@ -1252,11 +1251,11 @@ button {
 }
 
 .market-app-card__body {
-  min-height: 210px;
+  min-height: 146px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  gap: 18px;
+  gap: 14px;
   padding: 20px;
 }
 
@@ -1267,12 +1266,12 @@ button {
 }
 
 .market-app-card__body p {
-  margin-top: 10px;
+  margin-top: 8px;
   color: #405269;
   font-size: 0.92rem;
-  line-height: 1.65;
+  line-height: 1.55;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -1284,7 +1283,13 @@ button {
   gap: 14px;
 }
 
-.market-app-card__footer span {
+.market-app-card__meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.market-app-card__meta span {
   min-width: 0;
   color: var(--muted);
   font-size: 0.82rem;

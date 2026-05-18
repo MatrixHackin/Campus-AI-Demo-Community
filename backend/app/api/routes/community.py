@@ -63,3 +63,19 @@ async def unpublish_app(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post('/apps/{publication_id}/visit', response_model=PublishedAppItem)
+async def record_app_visit(
+    publication_id: int,
+    _current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(publication_service.record_visit, publication_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc

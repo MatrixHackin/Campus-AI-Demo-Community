@@ -12,13 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class HarborService:
-    """Harbor 只读镜像仓库服务。
+    """Harbor 镜像仓库服务。
 
-    第一版只读查询工作台需要的镜像项目：
+    查询工作台需要的镜像项目：
     - “我的镜像”：当前登录用户邮箱对应的私有项目
     - “公有镜像”：HARBOR_PUBLIC_PROJECT 指定的项目
-    - 不自动创建 Harbor 用户
-    - 不自动创建 Harbor 项目
+    同时在用户点击“保存容器”前，按邮箱确保 Harbor 用户和私有项目存在。
     - 不开放删除镜像/项目
     """
 
@@ -40,6 +39,29 @@ class HarborService:
     def user_project_name(self, email: str) -> str:
         safe_email = email.strip().lower().replace('@', '-at-').replace('.', '-dot-')
         return f'{safe_email}{self.settings.harbor_user_project_suffix}'
+
+    def ensure_user_private_project(self, email: str) -> dict:
+        """确保 Harbor 用户和私有项目存在。
+
+        与 GPUnion2-server 保持一致：用户名使用邮箱，项目名使用邮箱转义后加 -repo，
+        项目设为 private，并把用户加入项目 developer 角色。
+        """
+        if not self.configured:
+            raise RuntimeError('Harbor 未配置')
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise ValueError('缺少用户邮箱，无法创建 Harbor 私有项目')
+
+        user_id = self._ensure_user(normalized_email)
+        project_name = self.user_project_name(normalized_email)
+        project_id = self._ensure_project(project_name)
+        self._ensure_project_member(project_id, user_id)
+        return {
+            'user_id': user_id,
+            'project_id': project_id,
+            'project_name': project_name,
+            'username': normalized_email,
+        }
 
     def get_user_projects(self, email: str | None, include_tags: bool = False) -> dict:
         base_response = {
@@ -107,6 +129,80 @@ class HarborService:
         if not projects:
             return None
         return int(projects[0]['project_id'])
+
+    def _get_user_id(self, username: str) -> int | None:
+        response = requests.get(
+            f'{self._harbor_url()}users',
+            params={'username': username},
+            auth=self._admin_auth(),
+            timeout=self._timeout(),
+        )
+        response.raise_for_status()
+        users = response.json()
+        if not users:
+            return None
+        return int(users[0]['user_id'])
+
+    def _ensure_user(self, email: str) -> int:
+        user_id = self._get_user_id(email)
+        if user_id is not None:
+            return user_id
+
+        response = requests.post(
+            f'{self._harbor_url()}users',
+            json={
+                'username': email,
+                'password': self.settings.harbor_user_default_password,
+                'email': email,
+                'realname': email,
+                'comment': 'auto-created by Campus AI',
+            },
+            auth=self._admin_auth(),
+            timeout=self._timeout(),
+        )
+        if response.status_code not in {201, 409}:
+            raise RuntimeError(f'创建 Harbor 用户失败：HTTP {response.status_code} {response.text}')
+
+        user_id = self._get_user_id(email)
+        if user_id is None:
+            raise RuntimeError('创建 Harbor 用户后查询失败')
+        return user_id
+
+    def _ensure_project(self, project_name: str) -> int:
+        project_id = self._get_project_id(project_name)
+        if project_id is not None:
+            return project_id
+
+        response = requests.post(
+            f'{self._harbor_url()}projects',
+            json={
+                'project_name': project_name,
+                'metadata': {'public': 'false'},
+                'storage_limit': self.settings.harbor_user_default_storage_quota,
+            },
+            auth=self._admin_auth(),
+            timeout=self._timeout(),
+        )
+        if response.status_code not in {201, 409}:
+            raise RuntimeError(f'创建 Harbor 私有项目失败：HTTP {response.status_code} {response.text}')
+
+        project_id = self._get_project_id(project_name)
+        if project_id is None:
+            raise RuntimeError('创建 Harbor 私有项目后查询失败')
+        return project_id
+
+    def _ensure_project_member(self, project_id: int, user_id: int) -> None:
+        response = requests.post(
+            f'{self._harbor_url()}projects/{project_id}/members',
+            json={
+                'role_id': 2,
+                'member_user': {'user_id': user_id},
+            },
+            auth=self._admin_auth(),
+            timeout=self._timeout(),
+        )
+        if response.status_code not in {201, 409}:
+            raise RuntimeError(f'添加 Harbor 项目成员失败：HTTP {response.status_code} {response.text}')
 
     def _get_project(self, project_name: str, include_tags: bool = False, include_quota: bool = True) -> dict:
         result = {

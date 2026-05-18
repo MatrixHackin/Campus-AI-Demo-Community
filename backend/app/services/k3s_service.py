@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import logging
+import base64
+import json
 import re
 import shlex
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
+from app.services.harbor_service import HarborService
 from app.services.publication_repository import PublicationRepository
 
 logger = logging.getLogger(__name__)
@@ -38,9 +41,11 @@ class K3SService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
+        self.harbor_service = HarborService(settings)
         self.publication_repository = PublicationRepository(settings)
         self._core_v1 = None
         self._networking_v1 = None
+        self._batch_v1 = None
 
     def namespace_for_emp_id(self, emp_id: str) -> str:
         namespace = re.sub(r'[^a-z0-9-]+', '-', emp_id.strip().lower()).strip('-')
@@ -261,6 +266,144 @@ class K3SService:
             'status': 'deleting',
         }
 
+    def commit_user_container(
+        self,
+        emp_id: str | None,
+        username: str,
+        email: str | None,
+        pod_name: str,
+        image_name: str,
+    ) -> dict[str, Any]:
+        """提交一个特权 Job，将当前用户 Pod 的容器保存为 Harbor 私有镜像。"""
+        if not pod_name or not K8S_DNS_LABEL_PATTERN.fullmatch(pod_name):
+            raise ValueError('Pod 名称不合法')
+        if not emp_id:
+            raise RuntimeError('当前用户缺少 emp_id，无法保存容器')
+        if not email:
+            raise RuntimeError('当前用户缺少邮箱，无法定位 Harbor 私有项目')
+        if not self.settings.harbor_registry.strip():
+            raise RuntimeError('未配置 Harbor Registry')
+        if not self.settings.harbor_admin_username or not self.settings.harbor_admin_password:
+            raise RuntimeError('未配置 Harbor 管理员账号，无法推送保存镜像')
+
+        normalized_image_name = self._normalize_commit_image_name(image_name)
+        namespace = self.namespace_for_emp_id(emp_id)
+        record = self.container_repository.get_container_record(pod_name=pod_name)
+        if not record:
+            raise FileNotFoundError('未找到容器记录')
+        if record.get('username') and record['username'] != username:
+            raise PermissionError('无权保存该容器')
+
+        try:
+            pod = self._core().read_namespaced_pod(name=pod_name, namespace=namespace)
+        except self._api_exception_class() as exc:
+            if exc.status == 404:
+                raise FileNotFoundError('未找到容器 Pod') from exc
+            logger.warning('K3s Pod %s/%s 查询失败：%s', namespace, pod_name, exc)
+            raise RuntimeError(f'查询容器失败：{exc.reason or exc.status}') from exc
+
+        if not pod.spec or not pod.spec.node_name:
+            raise RuntimeError('容器尚未调度到节点，无法保存')
+        if pod.status and pod.status.phase != 'Running':
+            raise RuntimeError('只有运行中的容器可以保存')
+
+        container_id = self._pod_container_id(pod)
+        if not container_id:
+            raise RuntimeError('容器尚未就绪，无法获取 containerd ID')
+
+        try:
+            self.harbor_service.ensure_user_private_project(email)
+            project_name = self._harbor_user_project_name(email)
+            push_registry = self._commit_push_registry()
+            pull_secret_name = self._ensure_harbor_pull_secret(email, namespace)
+            credentials_secret_name = self._ensure_harbor_credentials_secret(email, namespace)
+        except Exception as exc:
+            logger.warning('准备保存容器所需 Harbor 私有项目或 imagePullSecret 失败：%s', exc)
+            raise RuntimeError(f'准备 Harbor 私有项目或 Secret 失败：{exc}') from exc
+
+        image_ref = f'{push_registry}/{project_name}/{normalized_image_name}:latest'
+        job_name = f'commit-{uuid.uuid4().hex[:8]}'
+        job_namespace = namespace
+
+        try:
+            self._batch().create_namespaced_job(
+                namespace=job_namespace,
+                body=self._commit_job_body(
+                    job_name=job_name,
+                    job_namespace=job_namespace,
+                    secret_name=credentials_secret_name,
+                    source_namespace=namespace,
+                    pod_name=pod_name,
+                    node_name=pod.spec.node_name,
+                    container_id=container_id,
+                    push_registry=push_registry,
+                    image_pull_secret_name=pull_secret_name,
+                    image_ref=image_ref,
+                ),
+            )
+        except self._api_exception_class() as exc:
+            logger.warning('创建保存容器 Job %s 失败：%s', job_name, exc)
+            raise RuntimeError(f'提交保存任务失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('创建保存容器 Job %s 异常：%s', job_name, exc)
+            raise RuntimeError(f'提交保存任务失败：{exc}') from exc
+
+        return {
+            'job_name': job_name,
+            'pod_name': pod_name,
+            'namespace': namespace,
+            'image': image_ref,
+            'status': 'Running',
+            'message': '保存任务已提交，正在生成并推送镜像',
+        }
+
+    def get_commit_job_status(self, emp_id: str | None, job_name: str) -> dict[str, Any]:
+        """查询当前用户保存容器 Job 的状态。"""
+        if not job_name or not K8S_DNS_LABEL_PATTERN.fullmatch(job_name):
+            raise ValueError('Job 名称不合法')
+        if not emp_id:
+            raise RuntimeError('当前用户缺少 emp_id，无法查询保存任务')
+
+        namespace = self.namespace_for_emp_id(emp_id)
+        job_namespace = namespace
+        try:
+            job = self._batch().read_namespaced_job(name=job_name, namespace=job_namespace)
+        except self._api_exception_class() as exc:
+            if exc.status == 404:
+                return {
+                    'job_name': job_name,
+                    'status': 'NotFound',
+                    'message': '保存任务不存在或已被清理',
+                    'image': None,
+                }
+            logger.warning('查询保存容器 Job %s 失败：%s', job_name, exc)
+            raise RuntimeError(f'查询保存任务失败：{exc.reason or exc.status}') from exc
+
+        labels = job.metadata.labels if job.metadata and job.metadata.labels else {}
+        annotations = job.metadata.annotations if job.metadata and job.metadata.annotations else {}
+        if labels.get('campus-ai/source-namespace') != namespace:
+            raise PermissionError('无权查询该保存任务')
+
+        status = 'Pending'
+        message = '保存任务等待运行'
+        if job.status:
+            if job.status.succeeded:
+                status = 'Succeeded'
+                message = '镜像保存成功'
+            elif job.status.failed:
+                status = 'Failed'
+                message = '镜像保存失败'
+            elif job.status.active:
+                status = 'Running'
+                message = '正在保存镜像...'
+
+        return {
+            'job_name': job_name,
+            'status': status,
+            'message': message,
+            'image': annotations.get('campus-ai/commit-image'),
+        }
+
     def get_ssh_target(
         self,
         app_name: str,
@@ -363,6 +506,14 @@ class K3SService:
             self._networking_v1 = client.NetworkingV1Api()
         return self._networking_v1
 
+    def _batch(self):
+        if self._batch_v1 is None:
+            from kubernetes import client
+
+            self._core()
+            self._batch_v1 = client.BatchV1Api()
+        return self._batch_v1
+
     @staticmethod
     def _namespace_body(namespace: str, emp_id: str | None = None):
         from kubernetes import client
@@ -380,7 +531,14 @@ class K3SService:
             )
         )
 
-    def _devbox_pod_body(self, pod_name: str, namespace: str, emp_id: str, app_name: str, ssh_username: str):
+    def _devbox_pod_body(
+        self,
+        pod_name: str,
+        namespace: str,
+        emp_id: str,
+        app_name: str,
+        ssh_username: str,
+    ):
         from kubernetes import client
 
         resource_value = {
@@ -489,6 +647,255 @@ class K3SService:
             '/usr/sbin/sshd -D -e & '
             'SSHD_PID=$!; '
             f'exec {app_command}'
+        )
+
+    @staticmethod
+    def _normalize_commit_image_name(image_name: str) -> str:
+        normalized = image_name.strip().lower()
+        if len(normalized) > 80:
+            raise ValueError('镜像名称最多 80 个字符')
+        if not re.fullmatch(r'[a-z0-9][a-z0-9._-]*', normalized):
+            raise ValueError('镜像名称只能包含小写字母、数字、点、下划线和中划线，且必须以字母或数字开头')
+        return normalized
+
+    def _harbor_user_project_name(self, email: str) -> str:
+        safe_email = email.strip().lower().replace('@', '-at-').replace('.', '-dot-')
+        return f'{safe_email}{self.settings.harbor_user_project_suffix}'
+
+    def _commit_push_registry(self) -> str:
+        """保存容器时 nerdctl 实际登录/推送的 registry host。
+
+        HARBOR_REGISTRY 用于工作台展示和业务镜像名，通常是 gpunion2.io；
+        但 commit Job 运行在集群内，不能依赖 gpunion2.io 的 DNS/HTTPS。
+        因此默认从 HARBOR_URL 提取真实 HTTP Harbor 入口，如 10.120.17.137:5053。
+        """
+        configured = self.settings.k3s_commit_push_registry.strip()
+        if configured:
+            parsed = urlparse(configured)
+            registry = parsed.netloc or parsed.path
+            registry = registry.strip().strip('/')
+            if registry:
+                return registry
+
+        harbor_url = self.settings.harbor_url.strip()
+        if harbor_url:
+            parsed = urlparse(harbor_url)
+            if parsed.netloc:
+                return parsed.netloc
+
+        return self.settings.harbor_registry.rstrip('/')
+
+    def _harbor_pull_secret_name(self, email: str) -> str:
+        safe_email = email.strip().lower().replace('@', '-at-').replace('.', '-dot-')
+        secret_name = f'{safe_email}-harbor'
+        secret_name = re.sub(r'[^a-z0-9.-]+', '-', secret_name).strip('-')
+        return secret_name[:253].rstrip('-') or 'harbor-pull-secret'
+
+    def _harbor_credentials_secret_name(self, email: str) -> str:
+        safe_email = email.strip().lower().replace('@', '-at-').replace('.', '-dot-')
+        secret_name = f'{safe_email}-harbor-credentials'
+        secret_name = re.sub(r'[^a-z0-9.-]+', '-', secret_name).strip('-')
+        return secret_name[:253].rstrip('-') or 'harbor-credentials'
+
+    def _ensure_harbor_pull_secret(self, email: str | None, namespace: str) -> str | None:
+        if not email:
+            return None
+        if not self.harbor_service.configured:
+            logger.warning('Harbor 未配置，跳过创建 namespace %s 的 imagePullSecret', namespace)
+            return None
+
+        normalized_email = email.strip().lower()
+        self.harbor_service.ensure_user_private_project(normalized_email)
+        secret_name = self._harbor_pull_secret_name(normalized_email)
+        secret_body = self._harbor_pull_secret_body(secret_name, normalized_email)
+        try:
+            self._core().create_namespaced_secret(namespace=namespace, body=secret_body)
+        except self._api_exception_class() as exc:
+            if exc.status == 409:
+                self._core().replace_namespaced_secret(name=secret_name, namespace=namespace, body=secret_body)
+            else:
+                raise
+        return secret_name
+
+    def _harbor_pull_secret_body(self, secret_name: str, email: str):
+        from kubernetes import client
+
+        auths = {}
+        for registry in {self.settings.harbor_registry.rstrip('/'), self._commit_push_registry()}:
+            if not registry:
+                continue
+            auths[registry] = {
+                'username': email,
+                'password': self.settings.harbor_user_default_password,
+                'auth': base64.b64encode(
+                    f'{email}:{self.settings.harbor_user_default_password}'.encode()
+                ).decode(),
+            }
+        docker_config = base64.b64encode(json.dumps({'auths': auths}).encode()).decode()
+        return client.V1Secret(
+            api_version='v1',
+            kind='Secret',
+            metadata=client.V1ObjectMeta(
+                name=secret_name,
+                labels={
+                    'app.kubernetes.io/managed-by': 'campus-ai',
+                    'campus-ai/harbor-pull-secret': 'true',
+                },
+            ),
+            type='kubernetes.io/dockerconfigjson',
+            data={
+                '.dockerconfigjson': docker_config,
+            },
+        )
+
+    def _ensure_harbor_credentials_secret(self, email: str | None, namespace: str) -> str:
+        if not email:
+            raise RuntimeError('当前用户缺少邮箱，无法创建 Harbor 凭据 Secret')
+
+        normalized_email = email.strip().lower()
+        secret_name = self._harbor_credentials_secret_name(normalized_email)
+        secret_body = self._harbor_credentials_secret_body(secret_name, normalized_email)
+        try:
+            self._core().create_namespaced_secret(namespace=namespace, body=secret_body)
+        except self._api_exception_class() as exc:
+            if exc.status == 409:
+                self._core().replace_namespaced_secret(name=secret_name, namespace=namespace, body=secret_body)
+            else:
+                raise
+        return secret_name
+
+    def _harbor_credentials_secret_body(self, secret_name: str, email: str):
+        from kubernetes import client
+
+        return client.V1Secret(
+            api_version='v1',
+            kind='Secret',
+            metadata=client.V1ObjectMeta(
+                name=secret_name,
+                labels={
+                    'app.kubernetes.io/managed-by': 'campus-ai',
+                    'campus-ai/harbor-credentials-secret': 'true',
+                },
+            ),
+            string_data={
+                'username': email,
+                'password': self.settings.harbor_user_default_password,
+            },
+            type='Opaque',
+        )
+
+    @staticmethod
+    def _pod_container_id(pod) -> str | None:
+        container_statuses = pod.status.container_statuses if pod.status and pod.status.container_statuses else []
+        if not container_statuses:
+            return None
+        container_id = container_statuses[0].container_id
+        if not container_id:
+            return None
+        return container_id.replace('containerd://', '')
+
+    def _commit_job_body(
+        self,
+        *,
+        job_name: str,
+        job_namespace: str,
+        secret_name: str,
+        source_namespace: str,
+        pod_name: str,
+        node_name: str,
+        container_id: str,
+        push_registry: str,
+        image_pull_secret_name: str | None,
+        image_ref: str,
+    ):
+        from kubernetes import client
+
+        socket_mount_path = self.settings.k3s_commit_containerd_socket
+        nerdctl_cmd = f'nerdctl --address {shlex.quote(socket_mount_path)} --namespace k8s.io'
+        insecure_flag = ' --insecure-registry' if self.settings.k3s_commit_insecure_registry else ''
+        command = (
+            'set -eu; '
+            f'printf "%s\\n" "$HARBOR_PASSWORD" | {nerdctl_cmd} login '
+            f'-u "$HARBOR_USERNAME" --password-stdin {shlex.quote(push_registry)}{insecure_flag}; '
+            f'{nerdctl_cmd} commit{insecure_flag} {shlex.quote(container_id)} {shlex.quote(image_ref)}; '
+            f'{nerdctl_cmd} push {shlex.quote(image_ref)}{insecure_flag}'
+        )
+        labels = {
+            'app.kubernetes.io/managed-by': 'campus-ai',
+            'campus-ai/commit-job': 'true',
+            'campus-ai/source-namespace': source_namespace,
+            'campus-ai/source-pod': pod_name,
+        }
+        annotations = {
+            'campus-ai/commit-image': image_ref,
+        }
+
+        return client.V1Job(
+            api_version='batch/v1',
+            kind='Job',
+            metadata=client.V1ObjectMeta(
+                name=job_name,
+                namespace=job_namespace,
+                labels=labels,
+                annotations=annotations,
+            ),
+            spec=client.V1JobSpec(
+                ttl_seconds_after_finished=300,
+                backoff_limit=0,
+                template=client.V1PodTemplateSpec(
+                    metadata=client.V1ObjectMeta(labels=labels, annotations=annotations),
+                    spec=client.V1PodSpec(
+                        node_name=node_name,
+                        restart_policy='Never',
+                        image_pull_secrets=[
+                            client.V1LocalObjectReference(name=image_pull_secret_name)
+                        ] if image_pull_secret_name else None,
+                        containers=[
+                            client.V1Container(
+                                name='commit-runner',
+                                image=self.settings.k3s_commit_nerdctl_image,
+                                security_context=client.V1SecurityContext(privileged=True),
+                                command=['/bin/sh', '-c', command],
+                                env=[
+                                    client.V1EnvVar(
+                                        name='HARBOR_USERNAME',
+                                        value_from=client.V1EnvVarSource(
+                                            secret_key_ref=client.V1SecretKeySelector(
+                                                name=secret_name,
+                                                key='username',
+                                            )
+                                        ),
+                                    ),
+                                    client.V1EnvVar(
+                                        name='HARBOR_PASSWORD',
+                                        value_from=client.V1EnvVarSource(
+                                            secret_key_ref=client.V1SecretKeySelector(
+                                                name=secret_name,
+                                                key='password',
+                                            )
+                                        ),
+                                    ),
+                                ],
+                                volume_mounts=[
+                                    client.V1VolumeMount(
+                                        name='containerd-sock',
+                                        mount_path=socket_mount_path,
+                                    )
+                                ],
+                            )
+                        ],
+                        volumes=[
+                            client.V1Volume(
+                                name='containerd-sock',
+                                host_path=client.V1HostPathVolumeSource(
+                                    path=self.settings.k3s_commit_host_containerd_socket,
+                                    type='Socket',
+                                ),
+                            )
+                        ],
+                    ),
+                ),
+            ),
         )
 
     def _connection_secret_body(self, app_name: str, connection_password: str):
@@ -703,6 +1110,7 @@ class K3SService:
             'name': pod.metadata.name if pod.metadata else '',
             'image': image,
             'status': status,
+            'node_name': pod.spec.node_name if pod.spec else None,
             'app_name': app_name,
             'url': annotations.get('campus-ai/public-url'),
             'ssh_username': annotations.get('campus-ai/ssh-username'),

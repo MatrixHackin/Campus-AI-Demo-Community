@@ -200,6 +200,24 @@ class PublicationRepository:
         finally:
             connection.close()
 
+    def increment_visit_count(self, publication_id: int) -> dict | None:
+        table_name = self._table_name()
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f'''
+                    UPDATE `{table_name}`
+                    SET visit_count = visit_count + 1
+                    WHERE id = %s
+                    ''',
+                    (publication_id,),
+                )
+        finally:
+            connection.close()
+
+        return self.get_by_id(publication_id)
+
     def delete_by_pod_name(self, pod_name: str) -> dict | None:
         row = self.get_by_pod_name(pod_name)
         if not row:

@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     harbor_registry: str = 'gpunion2.io'
     harbor_admin_username: str = ''
     harbor_admin_password: str = ''
+    harbor_user_default_password: str = 'Habor!123'
+    harbor_user_default_storage_quota: int = 50 * 1024 * 1024 * 1024
     harbor_user_project_suffix: str = '-repo'
     harbor_public_project: str = 'dev'
     harbor_request_timeout_seconds: int = 10
@@ -74,6 +76,11 @@ class Settings(BaseSettings):
     k3s_devbox_dns_nameservers: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: ['10.90.63.2', '10.90.63.3', '8.8.8.8']
     )
+    k3s_commit_nerdctl_image: str = 'gpunion2.io/library/nerdctl:latest'
+    k3s_commit_host_containerd_socket: str = '/run/k3s/containerd/containerd.sock'
+    k3s_commit_containerd_socket: str = '/run/containerd/containerd.sock'
+    k3s_commit_insecure_registry: bool = True
+    k3s_commit_push_registry: str = ''
     k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
     k3s_apps_path_prefix: str = '/apps'
     k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'

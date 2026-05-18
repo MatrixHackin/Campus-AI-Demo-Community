@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getPublishedApps } from '../api/client'
+import { getPublishedApps, recordAppVisit } from '../api/client'
 import AppShell from '../components/AppShell'
 
 function AppCover({ app }) {
@@ -39,6 +39,18 @@ export default function CommunityPage() {
   const handleOpenApp = useCallback((app) => {
     if (!app?.app_url) return
     window.open(app.app_url, '_blank', 'noopener,noreferrer')
+    setApps((prev) => prev.map((item) => (
+      item.id === app.id ? { ...item, visit_count: (item.visit_count || 0) + 1 } : item
+    )))
+    recordAppVisit(app.id)
+      .then((updated) => {
+        setApps((prev) => prev.map((item) => (
+          item.id === updated.id ? { ...item, visit_count: updated.visit_count } : item
+        )))
+      })
+      .catch(() => {
+        // 访问应用不应被计数失败阻塞，刷新应用市场时会重新同步后端计数。
+      })
   }, [])
 
   return (
@@ -71,7 +83,10 @@ export default function CommunityPage() {
                     <p>{app.app_description}</p>
                   </div>
                   <div className="market-app-card__footer">
-                    <span>发布者：{app.owner_display_name || app.owner_username}</span>
+                    <div className="market-app-card__meta">
+                      <span>发布者：{app.owner_display_name || app.owner_username}</span>
+                      <span>访问量：{app.visit_count || 0}</span>
+                    </div>
                     <button className="btn btn--primary" type="button" onClick={() => handleOpenApp(app)}>
                       访问应用
                     </button>

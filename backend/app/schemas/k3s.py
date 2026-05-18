@@ -26,6 +26,7 @@ class ContainerItem(BaseModel):
     name: str
     image: str
     status: str
+    node_name: str | None = None
     app_name: str | None = None
     url: str | None = None
     ssh_username: str | None = None
@@ -44,6 +45,26 @@ class ContainerDeleteResponse(BaseModel):
     namespace: str
     app_name: str | None = None
     status: str
+
+
+class ContainerCommitRequest(BaseModel):
+    image_name: str
+
+
+class ContainerCommitResponse(BaseModel):
+    job_name: str
+    pod_name: str
+    namespace: str
+    image: str
+    status: str = 'Running'
+    message: str
+
+
+class K3SJobStatusResponse(BaseModel):
+    job_name: str
+    status: str
+    message: str
+    image: str | None = None
 
 
 class AppNameAvailabilityResponse(BaseModel):

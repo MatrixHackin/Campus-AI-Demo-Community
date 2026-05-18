@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   checkAppName,
+  commitContainer,
   createDevboxContainer,
   deleteContainer,
+  getK3sJobStatus,
   getMyContainers,
   getMyHarborImages,
   publishApp,
@@ -14,6 +16,12 @@ const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 const CONTAINER_REFRESH_INTERVAL_MS = 5000
 const CONTAINER_REFRESH_MAX_ATTEMPTS = 12
 const COVER_MAX_UPLOAD_BYTES = 512 * 1024
+const COVER_CANVAS_WIDTH = 960
+const COVER_CANVAS_HEIGHT = 540
+const APP_DESCRIPTION_MAX_LENGTH = 40
+const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
+const COMMIT_JOB_REFRESH_INTERVAL_MS = 3000
+const COMMIT_JOB_MAX_ATTEMPTS = 200
 
 function containerFromCreateResult(result) {
   return {
@@ -58,16 +66,21 @@ async function compressCoverImage(file) {
   }
 
   const image = await loadImage(file)
-  const maxWidth = 960
-  const maxHeight = 540
-  const scale = Math.min(1, maxWidth / image.width, maxHeight / image.height)
+  const scale = Math.min(COVER_CANVAS_WIDTH / image.width, COVER_CANVAS_HEIGHT / image.height)
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
+  const offsetX = Math.round((COVER_CANVAS_WIDTH - width) / 2)
+  const offsetY = Math.round((COVER_CANVAS_HEIGHT - height) / 2)
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  canvas.width = COVER_CANVAS_WIDTH
+  canvas.height = COVER_CANVAS_HEIGHT
   const context = canvas.getContext('2d')
-  context.drawImage(image, 0, 0, width, height)
+  if (!context) {
+    throw new Error('当前浏览器不支持封面压缩')
+  }
+  context.fillStyle = '#f7faff'
+  context.fillRect(0, 0, COVER_CANVAS_WIDTH, COVER_CANVAS_HEIGHT)
+  context.drawImage(image, offsetX, offsetY, width, height)
 
   for (const quality of [0.78, 0.68, 0.58, 0.48]) {
     const blob = await canvasToBlob(canvas, 'image/webp', quality)
@@ -163,11 +176,13 @@ function ContainerList({
   deletingPodName,
   loading,
   publishingPodName,
+  savingJobs,
   onCopySsh,
   onDelete,
   onOpenApp,
   onOpenPublish,
   onOpenWebSsh,
+  onSaveContainer,
   onUnpublish
 }) {
   if (loading) {
@@ -183,6 +198,8 @@ function ContainerList({
       {containers.map((container) => {
         const imageName = imageNameFromRef(container.image)
         const displayName = container.app_name || container.name
+        const saveState = savingJobs[container.name]
+        const isSaving = saveState && !['Succeeded', 'Failed', 'NotFound', 'Error'].includes(saveState.status)
         return (
           <div className="container-row" key={container.name}>
             <span className="container-row__image" title={container.image || imageName} aria-hidden="true">
@@ -226,6 +243,15 @@ function ContainerList({
                 disabled={publishingPodName === container.name || !container.app_name}
               >
                 {container.is_published ? '取消发布' : '发布'}
+              </button>
+              <button
+                className="container-action-button"
+                type="button"
+                title={saveState?.message || '保存当前容器为 Harbor 私有镜像'}
+                onClick={() => onSaveContainer(container)}
+                disabled={isSaving || container.status !== 'Running'}
+              >
+                {isSaving ? '保存中…' : '保存容器'}
               </button>
               <button
                 className="container-delete-button"
@@ -273,16 +299,16 @@ function PublishAppModal({
           </label>
 
           <label>
-            <span>应用描述</span>
+            <span>应用简述</span>
             <textarea
               value={description}
               onChange={(event) => onDescriptionChange(event.target.value)}
-              placeholder="简要说明这个应用能做什么、适合谁使用"
-              maxLength={800}
+              placeholder="用两行以内说明这个应用能做什么"
+              maxLength={APP_DESCRIPTION_MAX_LENGTH}
               disabled={submitting}
               required
             />
-            <small>{description.length}/800</small>
+            <small>{description.length}/{APP_DESCRIPTION_MAX_LENGTH}</small>
           </label>
 
           <label>
@@ -401,6 +427,7 @@ export default function DashboardPage() {
   const [publishCoverFile, setPublishCoverFile] = useState(null)
   const [publishError, setPublishError] = useState('')
   const [publishingPodName, setPublishingPodName] = useState('')
+  const [savingJobs, setSavingJobs] = useState({})
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -576,6 +603,78 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const updateSavingJob = useCallback((podName, patch) => {
+    setSavingJobs((prev) => ({
+      ...prev,
+      [podName]: {
+        ...(prev[podName] || {}),
+        ...patch
+      }
+    }))
+  }, [])
+
+  const pollCommitJob = useCallback((podName, jobName, attempt = 1) => {
+    window.setTimeout(async () => {
+      try {
+        const status = await getK3sJobStatus(jobName)
+        updateSavingJob(podName, status)
+        if (status.status === 'Succeeded') {
+          loadHarborImages()
+          window.alert(`镜像保存成功：${status.image || ''}`)
+          return
+        }
+        if (['Failed', 'NotFound', 'Error'].includes(status.status)) {
+          setContainerError(status.message || '镜像保存失败')
+          return
+        }
+        if (attempt < COMMIT_JOB_MAX_ATTEMPTS) {
+          pollCommitJob(podName, jobName, attempt + 1)
+        } else {
+          updateSavingJob(podName, {
+            status: 'Error',
+            message: '保存任务查询超时，请稍后刷新镜像仓库确认结果'
+          })
+          setContainerError('保存任务查询超时，请稍后刷新镜像仓库确认结果')
+        }
+      } catch (err) {
+        updateSavingJob(podName, {
+          status: 'Error',
+          message: err.message
+        })
+        setContainerError(err.message)
+      }
+    }, COMMIT_JOB_REFRESH_INTERVAL_MS)
+  }, [loadHarborImages, updateSavingJob])
+
+  const handleSaveContainer = useCallback(async (container) => {
+    if (!container?.name) return
+    const imageName = window.prompt('请输入要保存的镜像名称，例如 my-backup-v1：')
+    if (!imageName) return
+
+    const normalizedImageName = imageName.trim().toLowerCase()
+    if (!COMMIT_IMAGE_NAME_PATTERN.test(normalizedImageName) || normalizedImageName.length > 80) {
+      setContainerError('镜像名称最多 80 个字符，只能包含小写字母、数字、点、下划线和中划线，且必须以字母或数字开头')
+      return
+    }
+
+    setContainerError('')
+    updateSavingJob(container.name, {
+      status: 'Submitting',
+      message: '正在提交保存任务'
+    })
+    try {
+      const result = await commitContainer(container.name, normalizedImageName)
+      updateSavingJob(container.name, result)
+      pollCommitJob(container.name, result.job_name)
+    } catch (err) {
+      updateSavingJob(container.name, {
+        status: 'Error',
+        message: err.message
+      })
+      setContainerError(err.message)
+    }
+  }, [pollCommitJob, updateSavingJob])
+
   const handleOpenPublishModal = useCallback((container) => {
     setPublishTarget(container)
     setPublishDescription('')
@@ -617,7 +716,11 @@ export default function DashboardPage() {
     event.preventDefault()
     if (!publishTarget?.name) return
     if (!publishDescription.trim()) {
-      setPublishError('请填写应用描述')
+      setPublishError('请填写应用简述')
+      return
+    }
+    if (publishDescription.trim().length > APP_DESCRIPTION_MAX_LENGTH) {
+      setPublishError(`应用简述最多 ${APP_DESCRIPTION_MAX_LENGTH} 个字符`)
       return
     }
 
@@ -691,11 +794,13 @@ export default function DashboardPage() {
               deletingPodName={deletingPodName}
               loading={containersLoading}
               publishingPodName={publishingPodName}
+              savingJobs={savingJobs}
               onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
               onOpenApp={handleOpenApp}
               onOpenPublish={handleOpenPublishModal}
               onOpenWebSsh={handleOpenWebSsh}
+              onSaveContainer={handleSaveContainer}
               onUnpublish={handleUnpublish}
             />
           ) : null}

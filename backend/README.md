@@ -81,16 +81,20 @@ SSO 登录成功后，后端会将 SSO 返回的用户画像 upsert 到 `sso_use
 
 ## Harbor 镜像仓库
 
-当前已接入 Harbor 只读查询，用于“工作台”右侧展示镜像：
+当前已接入 Harbor，用于“工作台”右侧展示镜像，并在用户点击“保存容器”时为用户准备私有仓库：
 
 - “我的镜像”：当前登录用户邮箱对应的私有项目。
 - “公有镜像”：`HARBOR_PUBLIC_PROJECT` 指向的 Harbor 项目，当前默认 `dev`。
 
-第一版约束：
-
 - Harbor 用户名继续使用 SSO 用户邮箱。
 - 私有项目名按邮箱转换：`user@example.com` -> `user-at-example-dot-com-repo`。
-- 不在 SSO 登录时自动创建 Harbor 用户或项目。
+- 不在 SSO 登录或首次申请容器时自动创建 Harbor 用户或项目；用户点击“保存容器”时，会自动确保 Harbor 用户、
+  private 项目和项目 developer 成员关系存在。
+- 保存容器时，会在用户 namespace 中创建/更新 `kubernetes.io/dockerconfigjson` 类型的 imagePullSecret，
+  供后续从用户私有项目 pull 镜像使用；保存 Job 也运行在用户 namespace 中并复用该 imagePullSecret 拉取
+  `nerdctl` runner 镜像。
+- 保存容器时，还会在用户 namespace 中创建/更新一个持久的 Harbor 凭据 Secret，用于 Job 注入
+  `HARBOR_USERNAME` / `HARBOR_PASSWORD` 并执行 `nerdctl login` 后 push 镜像；不再为每个 Job 创建临时凭据 Secret。
 - 不开放镜像删除接口。
 - 公共镜像项目通过 `HARBOR_PUBLIC_PROJECT` 配置，后续可改为本项目专用公共镜像项目。
 
@@ -101,6 +105,8 @@ HARBOR_URL=http://10.120.17.137:5053/api/v2.0/
 HARBOR_REGISTRY=gpunion2.io
 HARBOR_ADMIN_USERNAME=你的 Harbor 管理员账号
 HARBOR_ADMIN_PASSWORD=你的 Harbor 管理员密码
+HARBOR_USER_DEFAULT_PASSWORD=Habor!123
+HARBOR_USER_DEFAULT_STORAGE_QUOTA=53687091200
 HARBOR_USER_PROJECT_SUFFIX=-repo
 HARBOR_PUBLIC_PROJECT=dev
 HARBOR_REQUEST_TIMEOUT_SECONDS=10
@@ -180,10 +186,21 @@ PUBLISHED_COVER_MAX_BYTES=1048576
 - `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
 - `DELETE /api/v1/k3s/containers/{pod_name}`：删除当前登录用户 namespace 下的 Pod，并同步删除对应
   Secret、Web Service、SSH Service、Ingress 和 `containers` 表记录。
+- `POST /api/v1/k3s/containers/{pod_name}/commit`：手动保存当前用户容器为 Harbor 私有镜像；请求体为
+  `{"image_name":"my-backup-v1"}`。后端会在原 Pod 所在节点创建特权 Job，挂载 K3s containerd socket，
+  使用当前用户邮箱和 `HARBOR_USER_DEFAULT_PASSWORD` 执行 `nerdctl login`，再通过 `nerdctl commit`
+  生成镜像并推送到当前用户邮箱对应的 Harbor 私有项目。注意：`HARBOR_REGISTRY`
+  通常用于展示镜像名，如 `gpunion2.io`；保存容器时的实际 push registry 默认从 `HARBOR_URL` 提取，
+  例如 `http://10.120.17.137:5053/api/v2.0/` 会使用 `10.120.17.137:5053`，避免 Job 内访问
+  `https://gpunion2.io/v2/` 导致 DNS/协议失败。必要时可用 `K3S_COMMIT_PUSH_REGISTRY` 显式覆盖。
+- `GET /api/v1/k3s/jobs/{job_name}`：查询“保存容器”Job 状态。
 - `WebSocket /api/v1/ssh/ws/{app_name}/{ssh_username}`：WebSSH 浏览器终端通道。
 - `GET /api/v1/community/apps`：应用市场列表。
 - `POST /api/v1/community/apps/{pod_name}/publish`：发布当前用户容器到应用市场，表单字段为
-  `app_description` 和可选 `cover`；前端会先压缩封面，后端再限制文件大小。
+  `app_description` 和可选 `cover`；`app_description` 是应用卡片两行内展示的应用简述，最多 40 个字符；
+  前端会先压缩封面，后端再限制文件大小。
+- `POST /api/v1/community/apps/{publication_id}/visit`：应用市场访问计数；点击“访问应用”时调用并累加
+  `published_apps.visit_count`。
 - `DELETE /api/v1/community/apps/{pod_name}/publish`：取消发布当前用户应用。
 
 说明：
@@ -213,6 +230,9 @@ PUBLISHED_COVER_MAX_BYTES=1048576
   base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
 - 应用市场封面第一版保存在后端本地 `PUBLISHED_COVER_STORAGE_DIR`，数据库只保存 URL；如果后续图片量变大，
   建议替换为图床或对象存储，并只在 `published_apps.cover_url` 中保存外部 URL。
+- “保存容器”依赖 `K3S_COMMIT_NERDCTL_IMAGE` 内置 `nerdctl`，并要求后端配置 Harbor 管理员账号；该功能会创建
+  privileged Job 并挂载宿主机 containerd socket，因此只允许容器所有者通过后端鉴权后触发。保存 Job 设置
+  `backoffLimit=0`，失败时不自动重试，避免一个保存任务产生多个 commit Pod 或重复 push。
 - demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。
 
 ## 已知限制与后续优化

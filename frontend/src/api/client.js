@@ -70,6 +70,17 @@ export async function deleteContainer(podName) {
   })
 }
 
+export async function commitContainer(podName, imageName) {
+  return request(`/k3s/containers/${encodeURIComponent(podName)}/commit`, {
+    method: 'POST',
+    body: JSON.stringify({ image_name: imageName })
+  })
+}
+
+export async function getK3sJobStatus(jobName) {
+  return request(`/k3s/jobs/${encodeURIComponent(jobName)}`)
+}
+
 export async function checkAppName(appName) {
   const query = new URLSearchParams({ app_name: appName }).toString()
   return request(`/k3s/apps/check-name?${query}`)
@@ -77,6 +88,12 @@ export async function checkAppName(appName) {
 
 export async function getPublishedApps() {
   return request('/community/apps')
+}
+
+export async function recordAppVisit(publicationId) {
+  return request(`/community/apps/${encodeURIComponent(publicationId)}/visit`, {
+    method: 'POST'
+  })
 }
 
 export async function publishApp(podName, { appDescription, cover }) {
