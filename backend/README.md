@@ -54,8 +54,8 @@ python scripts/hash_password.py 你的密码
 需要在 `.env` 中配置：
 
 ```env
-SSO_DOMAIN=https://devsso.hkust-gz.edu.cn
-SSO_CLIENT_ID=你的 client id
+SSO_DOMAIN=https://sso.hkust-gz.edu.cn
+SSO_CLIENT_ID=gpunion.client
 SSO_CLIENT_SECRET=你的 client secret
 SSO_REDIRECT_URI=https://localhost:8080/signin-oidc
 SSO_POST_LOGOUT_REDIRECT_URI=https://localhost:8080/signout-callback

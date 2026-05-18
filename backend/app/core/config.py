@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = True
     session_cookie_samesite: str = 'lax'
 
-    sso_domain: str = 'https://devsso.hkust-gz.edu.cn'
+    sso_domain: str = 'https://sso.hkust-gz.edu.cn'
     sso_client_id: str = ''
     sso_client_secret: str = ''
     sso_redirect_uri: str = 'https://localhost:8080/signin-oidc'
