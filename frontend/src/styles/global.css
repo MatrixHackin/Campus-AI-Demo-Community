@@ -1298,12 +1298,264 @@ button {
   white-space: nowrap;
 }
 
+.my-apps-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.my-apps-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.my-app-card {
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 18px 45px rgba(22, 46, 79, 0.1);
+  padding: 20px;
+}
+
+.my-app-card--compact {
+  display: grid;
+  gap: 14px;
+}
+
+.my-app-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.my-app-card__header h2 {
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+.my-app-card__header p,
+.my-app-card__meta,
+.my-app-card__totals {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.my-app-card__header p {
+  margin-top: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.my-app-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 14px;
+}
+
+.my-app-card__meta--single {
+  margin-top: 8px;
+}
+
+.my-app-card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.app-metric {
+  border-radius: 18px;
+  border: 1px solid rgba(47, 125, 246, 0.1);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 12px;
+}
+
+.app-metric__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.app-metric__head strong {
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.app-metric__bar {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(47, 125, 246, 0.1);
+  margin-top: 10px;
+}
+
+.app-metric__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand), #70a6ff);
+}
+
+.app-metric small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.my-app-card__totals {
+  display: grid;
+  gap: 5px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(16, 32, 51, 0.08);
+}
+
+.danger-text {
+  color: var(--danger-text);
+}
+
+.usage-trends-panel {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.usage-trends-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.usage-trend-card {
+  min-width: 0;
+  position: relative;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 125, 246, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(245, 249, 255, 0.7));
+  padding: 12px;
+}
+
+.usage-trend-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.usage-trend-card__head strong {
+  color: var(--ink);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.usage-trend-card__chart {
+  display: block;
+  width: 100%;
+  height: 76px;
+  margin-top: 10px;
+  overflow: visible;
+}
+
+.usage-trend-card__chart line {
+  stroke: rgba(16, 32, 51, 0.08);
+  stroke-width: 1;
+}
+
+.usage-trend-card__chart polyline {
+  fill: none;
+  stroke: var(--brand);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 5px 8px rgba(47, 125, 246, 0.22));
+}
+
+.usage-trend-point {
+  cursor: crosshair;
+  outline: none;
+}
+
+.usage-trend-point__hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.usage-trend-point__dot {
+  fill: #ffffff;
+  stroke: var(--brand);
+  stroke-width: 1.4;
+  opacity: 0;
+  transition: opacity 0.16s ease, r 0.16s ease;
+}
+
+.usage-trend-point:hover .usage-trend-point__dot,
+.usage-trend-point:focus .usage-trend-point__dot {
+  opacity: 1;
+  r: 2.4;
+}
+
+.usage-trend-tooltip {
+  position: absolute;
+  z-index: 3;
+  bottom: 12px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 2px;
+  min-width: 92px;
+  border-radius: 12px;
+  border: 1px solid rgba(47, 125, 246, 0.18);
+  background: rgba(18, 32, 52, 0.92);
+  color: #ffffff;
+  box-shadow: 0 12px 28px rgba(22, 46, 79, 0.22);
+  padding: 7px 9px;
+  pointer-events: none;
+  text-align: center;
+}
+
+.usage-trend-tooltip strong {
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.usage-trend-tooltip span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.68rem;
+}
+
 .muted-card {
   border-radius: var(--radius-md);
   border: 1px dashed rgba(16, 32, 51, 0.14);
   background: rgba(255, 255, 255, 0.44);
   color: var(--muted);
   padding: 22px;
+}
+
+.muted-card--compact {
+  padding: 14px;
+}
+
+@media (max-width: 1180px) {
+  .usage-trends-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .usage-trends-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .image-button-grid {

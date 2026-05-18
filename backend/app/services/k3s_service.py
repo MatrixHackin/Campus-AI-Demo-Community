@@ -12,6 +12,7 @@ from urllib.parse import quote, urlparse
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
+from app.services.container_usage_service import ContainerUsageService
 from app.services.harbor_service import HarborService
 from app.services.publication_repository import PublicationRepository
 
@@ -41,6 +42,7 @@ class K3SService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
+        self.container_usage_service = ContainerUsageService(settings)
         self.harbor_service = HarborService(settings)
         self.publication_repository = PublicationRepository(settings)
         self._core_v1 = None
@@ -241,6 +243,7 @@ class K3SService:
             raise PermissionError('无权删除该容器')
 
         app_name = record.get('app_name') if record else None
+        pod = None
         try:
             pod = self._core().read_namespaced_pod(name=pod_name, namespace=namespace)
             labels = pod.metadata.labels if pod.metadata and pod.metadata.labels else {}
@@ -252,6 +255,12 @@ class K3SService:
         except Exception as exc:
             logger.warning('K3s Pod %s/%s 查询异常：%s', namespace, pod_name, exc)
             raise RuntimeError(f'查询容器失败：{exc}') from exc
+
+        if pod is not None:
+            try:
+                self.container_usage_service.collect_pod(pod=pod, final=True)
+            except Exception as exc:
+                logger.warning('删除容器 %s 前汇总资源消耗失败，继续删除：%s', pod_name, exc)
 
         self._delete_app_resources(namespace=namespace, pod_name=pod_name, app_name=app_name, strict=True)
         try:
@@ -1105,12 +1114,18 @@ class K3SService:
         status = pod.status.phase if pod.status and pod.status.phase else 'Unknown'
         if pod.metadata and pod.metadata.deletion_timestamp:
             status = 'Terminating'
+        start_time = pod.status.start_time if pod.status and pod.status.start_time else None
+        if start_time and start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
 
         return {
             'name': pod.metadata.name if pod.metadata else '',
             'image': image,
             'status': status,
             'node_name': pod.spec.node_name if pod.spec else None,
+            'start_time': start_time.isoformat() if start_time else None,
+            'duration': int((now - start_time).total_seconds()) if start_time else 0,
             'app_name': app_name,
             'url': annotations.get('campus-ai/public-url'),
             'ssh_username': annotations.get('campus-ai/ssh-username'),

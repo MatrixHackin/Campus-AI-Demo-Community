@@ -1,17 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_current_session_with_emp_id, get_k3s_service
+from app.api.deps import get_container_usage_service, get_current_session_with_emp_id, get_k3s_service
 from app.schemas.k3s import (
     AppNameAvailabilityResponse,
     ContainerCommitRequest,
     ContainerCommitResponse,
     ContainerDeleteResponse,
     ContainerListResponse,
+    ContainerUsageTrendResponse,
     DevboxCreateRequest,
     DevboxCreateResponse,
     K3SJobStatusResponse,
+    MyAppsUsageResponse,
 )
+from app.services.container_usage_service import ContainerUsageService
 from app.services.k3s_service import K3SService
 from app.services.token_store import SessionRecord
 
@@ -61,6 +64,46 @@ async def list_user_containers(
 ):
     try:
         return await run_in_threadpool(k3s_service.list_user_containers, current_session.emp_id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get('/my-apps/usage', response_model=MyAppsUsageResponse)
+async def list_my_apps_usage(
+    current_session: SessionRecord = Depends(get_current_session_with_emp_id),
+    k3s_service: K3SService = Depends(get_k3s_service),
+    container_usage_service: ContainerUsageService = Depends(get_container_usage_service),
+):
+    try:
+        namespace = k3s_service.namespace_for_emp_id(current_session.emp_id or '')
+        return await run_in_threadpool(container_usage_service.list_namespace_usage, namespace)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get('/containers/{pod_name}/usage-trend', response_model=ContainerUsageTrendResponse)
+async def get_container_usage_trend(
+    pod_name: str,
+    current_session: SessionRecord = Depends(get_current_session_with_emp_id),
+    k3s_service: K3SService = Depends(get_k3s_service),
+    container_usage_service: ContainerUsageService = Depends(get_container_usage_service),
+):
+    try:
+        namespace = k3s_service.namespace_for_emp_id(current_session.emp_id or '')
+        return await run_in_threadpool(
+            container_usage_service.get_pod_usage_trend,
+            namespace=namespace,
+            pod_name=pod_name,
+            minutes=5,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

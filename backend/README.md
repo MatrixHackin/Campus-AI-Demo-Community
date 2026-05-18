@@ -142,6 +142,7 @@ backend/sql/add_unique_sso_emp_id.sql
 ```text
 backend/sql/add_unique_containers_app_name.sql
 backend/sql/add_ssh_container_fields.sql
+backend/sql/update_log_usage_metrics.sql
 ```
 
 K3s 连接配置：
@@ -166,6 +167,11 @@ WEBSSH_PUBLIC_PATH_PREFIX=/ssh
 PUBLISHED_COVER_STORAGE_DIR=static/covers
 PUBLISHED_COVER_PUBLIC_PREFIX=/api/static/covers
 PUBLISHED_COVER_MAX_BYTES=1048576
+PROMETHEUS_URL=http://10.43.146.195:9090
+PROMETHEUS_QUERY_TIMEOUT_SECONDS=5
+PROMETHEUS_RETENTION_SECONDS=864000
+PROMETHEUS_QUERY_RANGE_MAX_POINTS=240
+PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 ```
 
 接口：
@@ -233,7 +239,19 @@ PUBLISHED_COVER_MAX_BYTES=1048576
 - “保存容器”依赖 `K3S_COMMIT_NERDCTL_IMAGE` 内置 `nerdctl`，并要求后端配置 Harbor 管理员账号；该功能会创建
   privileged Job 并挂载宿主机 containerd socket，因此只允许容器所有者通过后端鉴权后触发。保存 Job 设置
   `backoffLimit=0`，失败时不自动重试，避免一个保存任务产生多个 commit Pod 或重复 push。
+- 容器资源消耗汇总使用 Prometheus 查询窗口增量：CPU 使用 `increase(container_cpu_usage_seconds_total)` 记录
+  core-seconds；网络使用 `increase(container_network_*_bytes_total)` 记录总字节；内存使用
+  `container_memory_working_set_bytes` 的窗口平均/峰值，并计算 GB-hours。当前集群 Prometheus retention 为
+  10 天，因此提供脚本 `backend/scripts/collect_container_usage.py` 供每周六 23:59 由 cron/systemd timer
+  触发，定期把运行中 Pod 资源消耗累加到 `log` 表；删除容器时会在删除 K3s 资源前再汇总最后一个窗口并
+  标记 `status=deleted`。如果统计窗口起点早于 Prometheus retention，会写入 `metrics_complete=false`。
 - demo 登录如需测试容器申请，可在 `.env` 中配置 `DEMO_EMP_ID`；MySQL 本地用户则读取 `users.emp_id`。
+
+每周六 23:59 的 crontab 示例：
+
+```cron
+59 23 * * 6 cd /home/ldaphome/liuhemu/document/Campus-AI-Demo-Community/backend && mkdir -p logs && /home/ldaphome/liuhemu/miniconda3/envs/campusai/bin/python scripts/collect_container_usage.py >> logs/container_usage_collect.log 2>&1
+```
 
 ## 已知限制与后续优化
 

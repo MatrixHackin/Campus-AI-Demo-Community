@@ -2,6 +2,7 @@ from fastapi import Cookie, Depends, HTTPException, status
 
 from app.core.config import get_settings
 from app.services.auth_service import AuthService
+from app.services.container_usage_service import ContainerUsageService
 from app.services.harbor_service import HarborService
 from app.services.k3s_service import K3SService
 from app.services.publication_service import PublicationService
@@ -15,6 +16,7 @@ token_store = TokenStore(ttl_hours=settings.token_ttl_hours)
 auth_service = AuthService(settings=settings, token_store=token_store)
 harbor_service = HarborService(settings=settings)
 k3s_service = K3SService(settings=settings)
+container_usage_service = ContainerUsageService(settings=settings)
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
 publication_service = PublicationService(settings=settings)
 sso_service = SSOService(settings=settings)
@@ -35,6 +37,10 @@ def get_harbor_service() -> HarborService:
 
 def get_k3s_service() -> K3SService:
     return k3s_service
+
+
+def get_container_usage_service() -> ContainerUsageService:
+    return container_usage_service
 
 
 def get_ssh_gateway_service() -> SSHGatewayService:

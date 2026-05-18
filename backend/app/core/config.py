@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     published_cover_public_prefix: str = '/api/static/covers'
     published_cover_max_bytes: int = 1024 * 1024
 
+    prometheus_url: str = 'http://10.43.146.195:9090'
+    prometheus_query_timeout_seconds: int = 5
+    prometheus_retention_seconds: int = 10 * 24 * 60 * 60
+    prometheus_query_range_max_points: int = 240
+    prometheus_query_range_min_step_seconds: int = 60
+    prometheus_trend_step_seconds: int = 30
+
     @field_validator('cors_origins', mode='before')
     @classmethod
     def parse_cors_origins(cls, value):
