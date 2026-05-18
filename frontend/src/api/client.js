@@ -110,6 +110,28 @@ export async function toggleAppLike(publicationId) {
   })
 }
 
+export async function getAppReviews(publicationId, { offset = 0, limit = 10, sort = 'desc' } = {}) {
+  const query = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+    sort
+  }).toString()
+  return request(`/community/apps/${encodeURIComponent(publicationId)}/reviews?${query}`)
+}
+
+export async function submitAppReview(publicationId, { rating, comment }) {
+  return request(`/community/apps/${encodeURIComponent(publicationId)}/review`, {
+    method: 'POST',
+    body: JSON.stringify({ rating, comment })
+  })
+}
+
+export async function deleteAppReview(publicationId) {
+  return request(`/community/apps/${encodeURIComponent(publicationId)}/review`, {
+    method: 'DELETE'
+  })
+}
+
 export async function publishApp(podName, { appDescription, cover }) {
   const formData = new FormData()
   formData.append('app_description', appDescription)

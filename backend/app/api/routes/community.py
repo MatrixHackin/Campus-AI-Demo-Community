@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_session, get_publication_service
-from app.schemas.community import PublishedAppItem, PublishedAppListResponse
+from app.schemas.community import AppReviewListResponse, AppReviewRequest, PublishedAppItem, PublishedAppListResponse
 from app.services.publication_service import PublicationService
 from app.services.token_store import SessionRecord
 
@@ -89,6 +89,71 @@ async def toggle_app_like(
 ):
     try:
         return await run_in_threadpool(publication_service.toggle_like, publication_id, current_session)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get('/apps/{publication_id}/reviews', response_model=AppReviewListResponse)
+async def list_app_reviews(
+    publication_id: int,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=50),
+    sort: str = Query(default='desc', pattern='^(asc|desc)$'),
+    current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(
+            publication_service.get_reviews,
+            publication_id,
+            current_session,
+            offset,
+            limit,
+            sort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post('/apps/{publication_id}/review', response_model=AppReviewListResponse)
+async def upsert_app_review(
+    publication_id: int,
+    payload: AppReviewRequest,
+    current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(
+            publication_service.upsert_review,
+            publication_id,
+            payload.rating,
+            payload.comment,
+            current_session,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.delete('/apps/{publication_id}/review', response_model=AppReviewListResponse)
+async def delete_app_review(
+    publication_id: int,
+    current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(publication_service.delete_review, publication_id, current_session)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except FileNotFoundError as exc:

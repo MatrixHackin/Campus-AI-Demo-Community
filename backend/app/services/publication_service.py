@@ -11,6 +11,7 @@ from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
 
 APP_DESCRIPTION_MAX_LENGTH = 40
+APP_REVIEW_COMMENT_MAX_LENGTH = 300
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +106,68 @@ class PublicationService:
             raise FileNotFoundError('未找到发布应用')
         return self._serialize(row)
 
+    def get_reviews(
+        self,
+        publication_id: int,
+        session: SessionRecord,
+        offset: int = 0,
+        limit: int = 10,
+        sort: str = 'desc',
+    ) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        if sort not in {'asc', 'desc'}:
+            raise ValueError('评价排序参数不合法')
+        row = self.repository.get_reviews(
+            publication_id=publication_id,
+            user_key=self._user_key(session),
+            offset=offset,
+            limit=limit,
+            sort=sort,
+        )
+        if not row:
+            raise FileNotFoundError('未找到发布应用')
+        return self._serialize_reviews(row)
+
+    def upsert_review(
+        self,
+        publication_id: int,
+        rating: int,
+        comment: str | None,
+        session: SessionRecord,
+    ) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        if rating < 0 or rating > 5:
+            raise ValueError('评分必须在 0 到 5 星之间')
+
+        normalized_comment = (comment or '').strip()
+        if len(normalized_comment) > APP_REVIEW_COMMENT_MAX_LENGTH:
+            raise ValueError(f'评论最多 {APP_REVIEW_COMMENT_MAX_LENGTH} 个字符')
+
+        row = self.repository.upsert_review(
+            publication_id=publication_id,
+            user_key=self._user_key(session),
+            username=session.username,
+            display_name=session.display_name,
+            rating=rating,
+            comment=normalized_comment or None,
+        )
+        if not row:
+            raise FileNotFoundError('未找到发布应用')
+        return self._serialize_reviews(row)
+
+    def delete_review(self, publication_id: int, session: SessionRecord) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        row = self.repository.delete_review(
+            publication_id=publication_id,
+            user_key=self._user_key(session),
+        )
+        if not row:
+            raise FileNotFoundError('未找到发布应用')
+        return self._serialize_reviews(row)
+
     def delete_cover_by_url(self, cover_url: str | None) -> None:
         if not cover_url:
             return
@@ -152,6 +215,19 @@ class PublicationService:
 
     @staticmethod
     def _serialize(row: dict) -> dict:
+        my_review = None
+        if row.get('my_review_id'):
+            my_review = {
+                'id': int(row['my_review_id']),
+                'username': row.get('my_review_username'),
+                'display_name': row.get('my_review_display_name'),
+                'rating': int(row.get('my_review_rating') or 0),
+                'comment': row.get('my_review_comment'),
+                'created_at': row.get('my_review_created_at').isoformat()
+                if row.get('my_review_created_at') else None,
+                'updated_at': row.get('my_review_updated_at').isoformat()
+                if row.get('my_review_updated_at') else None,
+            }
         return {
             'id': int(row['id']),
             'pod_name': row['pod_name'],
@@ -164,6 +240,44 @@ class PublicationService:
             'visit_count': row.get('visit_count') or 0,
             'like_count': row.get('like_count') or 0,
             'is_liked': bool(row.get('is_liked')),
+            'rating_avg': float(row.get('rating_avg') or 0),
+            'rating_sum': int(row.get('rating_sum') or 0),
+            'review_count': int(row.get('review_count') or 0),
+            'my_review': my_review,
             'published_at': row.get('published_at').isoformat() if row.get('published_at') else None,
+            'updated_at': row.get('updated_at').isoformat() if row.get('updated_at') else None,
+        }
+
+    @classmethod
+    def _serialize_reviews(cls, row: dict) -> dict:
+        summary = row.get('summary') or {}
+        return {
+            'summary': {
+                'rating_avg': float(summary.get('rating_avg') or 0),
+                'rating_sum': int(summary.get('rating_sum') or 0),
+                'review_count': int(summary.get('review_count') or 0),
+            },
+            'my_review': cls._serialize_review_item(row.get('my_review')),
+            'reviews': [
+                review
+                for review in (cls._serialize_review_item(item) for item in row.get('reviews') or [])
+                if review is not None
+            ],
+            'next_offset': row.get('next_offset'),
+            'has_more': bool(row.get('has_more')),
+            'sort': row.get('sort') or 'desc',
+        }
+
+    @staticmethod
+    def _serialize_review_item(row: dict | None) -> dict | None:
+        if not row:
+            return None
+        return {
+            'id': int(row['id']) if row.get('id') is not None else None,
+            'username': row.get('username'),
+            'display_name': row.get('display_name'),
+            'rating': int(row.get('rating') or 0),
+            'comment': row.get('comment'),
+            'created_at': row.get('created_at').isoformat() if row.get('created_at') else None,
             'updated_at': row.get('updated_at').isoformat() if row.get('updated_at') else None,
         }

@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS published_apps (
   auth_provider VARCHAR(32) NOT NULL DEFAULT 'local',
   visit_count INT NOT NULL DEFAULT 0,
   like_count INT NOT NULL DEFAULT 0,
+  review_count INT NOT NULL DEFAULT 0,
+  rating_sum INT NOT NULL DEFAULT 0,
+  rating_avg DECIMAL(3,2) NOT NULL DEFAULT 0.00,
   is_published BOOLEAN NOT NULL DEFAULT TRUE,
   published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -88,6 +91,23 @@ CREATE TABLE IF NOT EXISTS published_app_likes (
   PRIMARY KEY (id),
   UNIQUE KEY uk_like_publication_user (publication_id, user_key),
   KEY idx_likes_publication_id (publication_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS published_app_reviews (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  publication_id BIGINT UNSIGNED NOT NULL,
+  user_key VARCHAR(255) NOT NULL,
+  username VARCHAR(255) NULL,
+  display_name VARCHAR(255) NULL,
+  rating TINYINT UNSIGNED NOT NULL,
+  comment TEXT NULL,
+  is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_review_publication_user (publication_id, user_key),
+  KEY idx_reviews_publication_id (publication_id),
+  KEY idx_reviews_visible (publication_id, is_deleted, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `log` (
