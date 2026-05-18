@@ -40,9 +40,15 @@ class MySQLAuthRepository(AuthRepository):
 
     def _validate_table_name(self) -> str:
         try:
-            return validate_table_name(self.settings.mysql_user_table, '用户表名')
+            return validate_table_name(self.settings.sso_user_table, '统一用户表名')
         except ValueError as exc:
             raise HTTPException(status_code=500, detail='用户表名配置不合法') from exc
+
+    def _validate_legacy_table_name(self) -> str:
+        try:
+            return validate_table_name(self.settings.mysql_user_table, '旧用户表名')
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail='旧用户表名配置不合法') from exc
 
     def _verify_password(self, password: str, stored_hash: str) -> bool:
         """校验格式：pbkdf2_sha256$iterations$salt$hash。"""
@@ -64,6 +70,7 @@ class MySQLAuthRepository(AuthRepository):
 
     def _authenticate_sync(self, username: str, password: str) -> UserRecord | None:
         table_name = self._validate_table_name()
+        login_username = username.strip().lower()
 
         try:
             connection = connect_mysql(self.settings)
@@ -76,14 +83,41 @@ class MySQLAuthRepository(AuthRepository):
             with connection.cursor() as cursor:
                 cursor.execute(
                     f'''
-                    SELECT id, username, display_name, emp_id, password_hash
+                    SELECT
+                      id,
+                      username,
+                      display_name,
+                      user_type,
+                      email,
+                      department,
+                      emp_id,
+                      password_hash
                     FROM `{table_name}`
-                    WHERE username = %s
+                    WHERE auth_provider = 'local'
+                      AND username = %s
+                      AND local_login_enabled = 1
+                      AND password_hash IS NOT NULL
                     LIMIT 1
                     ''',
-                    (username,),
+                    (login_username,),
                 )
                 row = cursor.fetchone()
+                if not row:
+                    legacy_table_name = self._validate_legacy_table_name()
+                    if legacy_table_name != table_name:
+                        cursor.execute(
+                            f'''
+                            SELECT id, username, display_name, emp_id, password_hash
+                            FROM `{legacy_table_name}`
+                            WHERE username = %s
+                            LIMIT 1
+                            ''',
+                            (username,),
+                        )
+                        legacy_row = cursor.fetchone()
+                        if legacy_row:
+                            legacy_row['_legacy_user'] = True
+                            row = legacy_row
         finally:
             connection.close()
 
@@ -96,10 +130,16 @@ class MySQLAuthRepository(AuthRepository):
         ):
             return None
 
+        is_legacy_user = bool(row.get('_legacy_user'))
         return UserRecord(
-            user_id=str(row['id']),
+            user_id=f'legacy:{row["id"]}' if is_legacy_user else f'local:{row["id"]}',
             username=row['username'],
             display_name=row.get('display_name') or row['username'],
+            local_user_id=None if is_legacy_user else int(row['id']),
+            auth_provider='local',
+            user_type=row.get('user_type'),
+            email=row.get('email'),
+            department=row.get('department'),
             emp_id=row.get('emp_id'),
         )
 
@@ -123,13 +163,14 @@ class AuthService:
     async def login(self, username: str, password: str) -> dict:
         user = await self.repository.authenticate(username, password)
         if not user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='用户名或密码错误')
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='账号或密码错误')
 
         session = self.token_store.issue_token(
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
-            auth_provider='local',
+            local_user_id=user.local_user_id,
+            auth_provider=user.auth_provider,
             user_type=user.user_type,
             email=user.email,
             department=user.department,
@@ -139,6 +180,7 @@ class AuthService:
             'access_token': session.token,
             'token_type': 'bearer',
             'expires_at': session.expires_at.isoformat(),
+            'auth_provider': session.auth_provider,
             'user': {
                 'id': user.user_id,
                 'username': user.username,

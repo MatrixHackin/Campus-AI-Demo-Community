@@ -7,6 +7,8 @@ class UserRecord:
     user_id: str
     username: str
     display_name: str
+    local_user_id: int | None = None
+    auth_provider: str = 'local'
     user_type: str | None = None
     email: str | None = None
     department: str | None = None

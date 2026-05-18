@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS sso_users (
   email VARCHAR(255) NULL,
   department VARCHAR(128) NULL,
   emp_id VARCHAR(128) NULL,
+  password_hash VARCHAR(255) NULL,
+  local_login_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   last_login_at TIMESTAMP NULL DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS sso_users (
   UNIQUE KEY uk_sso_users_provider_subject (auth_provider, provider_subject),
   KEY idx_sso_users_username (username),
   KEY idx_sso_users_email (email),
+  KEY idx_sso_users_local_login (auth_provider, local_login_enabled, username),
   UNIQUE KEY uk_sso_users_emp_id (emp_id),
   KEY idx_sso_users_last_login_at (last_login_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
