@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import errno
 import json
@@ -111,6 +112,53 @@ class _TargetSSHConnection:
                     self._bridge.close()
 
 
+async def _copy_ssh_stream(reader, writer) -> None:
+    """在两个 AsyncSSH stream 之间转发数据，兼容文本与二进制通道。"""
+    try:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                break
+            writer.write(data)
+            drain = getattr(writer, 'drain', None)
+            if drain is not None:
+                await drain()
+    finally:
+        with contextlib.suppress(Exception):
+            writer.write_eof()
+
+
+def _parse_gateway_login(login_name: str) -> tuple[str, str] | None:
+    """解析 SSH Gateway 登录名。
+
+    兼容两种格式：
+    - 原生 SSH 人工使用：{ssh_username}+{app_name}
+    - IDE Remote-SSH 深链使用：{app_name}__{base64url(ssh_username)}
+
+    VS Code Remote-SSH 会把 `ssh-remote+...` 中的 `+` 当成分隔符，
+    因此 IDE 深链不能直接使用包含 `+` 的 SSH 用户名。
+    """
+    if '__' in login_name:
+        app_name, encoded_username = login_name.split('__', 1)
+        if not app_name or not encoded_username:
+            return None
+        try:
+            padding = '=' * (-len(encoded_username) % 4)
+            ssh_username = base64.urlsafe_b64decode(f'{encoded_username}{padding}').decode('utf-8')
+        except Exception:
+            return None
+        if not ssh_username:
+            return None
+        return ssh_username, app_name
+
+    if '+' in login_name:
+        ssh_username, app_name = login_name.rsplit('+', 1)
+        if ssh_username and app_name:
+            return ssh_username, app_name
+
+    return None
+
+
 class SSHGatewayService:
     """WebSSH 与原生 SSH 网关。
 
@@ -163,9 +211,7 @@ class SSHGatewayService:
         """读取固定 HostKey；未配置时生成临时 HostKey。"""
         import asyncssh
 
-        host_key_path = self.settings.ssh_gateway_host_key_path
-        if not host_key_path:
-            return asyncssh.generate_private_key('ssh-ed25519')
+        host_key_path = self.settings.ssh_gateway_host_key_path or '.run/ssh_gateway_host_key'
 
         path = Path(host_key_path).expanduser()
         if path.exists():
@@ -338,19 +384,26 @@ class _NativeSSHServer:
         class Server(asyncssh.SSHServer):
             def __init__(self) -> None:
                 self.target: SSHTarget | None = None
+                self.forward_conn = None
+                self.forward_conn_lock = asyncio.Lock()
 
             def begin_auth(self, username: str) -> bool:
                 return True
+
+            def connection_lost(self, exc) -> None:
+                if self.forward_conn is not None:
+                    with contextlib.suppress(Exception):
+                        self.forward_conn.close()
+                    self.forward_conn = None
 
             def password_auth_supported(self) -> bool:
                 return True
 
             def validate_password(self, username: str, password: str) -> bool:
-                if '+' not in username:
+                parsed_login = _parse_gateway_login(username)
+                if parsed_login is None:
                     return False
-                ssh_username, app_name = username.rsplit('+', 1)
-                if not ssh_username or not app_name:
-                    return False
+                ssh_username, app_name = parsed_login
                 try:
                     self.target = gateway.resolve_target(
                         app_name=app_name,
@@ -366,6 +419,54 @@ class _NativeSSHServer:
                 if self.target is None:
                     return False
                 return _NativeSSHSession(gateway, self.target)
+
+            async def _get_forward_conn(self):
+                async with self.forward_conn_lock:
+                    if self.forward_conn is None:
+                        self.forward_conn = await gateway.connect_target(self.target)
+                    return self.forward_conn
+
+            def _reset_forward_conn(self) -> None:
+                if self.forward_conn is not None:
+                    with contextlib.suppress(Exception):
+                        self.forward_conn.close()
+                    self.forward_conn = None
+
+            def connection_requested(self, dest_host: str, dest_port: int, orig_host: str, orig_port: int):
+                if self.target is None:
+                    return False
+
+                async def forward_tcp(reader, writer) -> None:
+                    target_writer = None
+                    try:
+                        target_conn = await self._get_forward_conn()
+                        target_reader, target_writer = await target_conn.open_connection(
+                            dest_host,
+                            dest_port,
+                            orig_host=orig_host,
+                            orig_port=orig_port,
+                            encoding=None,
+                        )
+                        await asyncio.gather(
+                            _copy_ssh_stream(reader, target_writer),
+                            _copy_ssh_stream(target_reader, writer),
+                        )
+                    except Exception as exc:
+                        self._reset_forward_conn()
+                        logger.warning(
+                            '原生 SSH TCP 转发失败 %s:%s -> %s/%s：%s',
+                            dest_host,
+                            dest_port,
+                            self.target.app_name,
+                            self.target.namespace,
+                            exc,
+                        )
+                    finally:
+                        if target_writer is not None:
+                            with contextlib.suppress(Exception):
+                                target_writer.close()
+
+                return forward_tcp
 
         self._server = Server()
 
@@ -383,6 +484,9 @@ class _NativeSSHSession:
         self.term_type = 'xterm-256color'
         self.term_size = (100, 32)
         self.command: str | None = None
+        self.subsystem: str | None = None
+        self.pty_was_requested = False
+        self._started = False
         self._pending_input: list[Any] = []
         self._pending_eof = False
 
@@ -390,18 +494,33 @@ class _NativeSSHSession:
         self.channel = channel
 
     def pty_requested(self, term_type, term_size, term_modes) -> bool:
+        self.pty_was_requested = True
         self.term_type = term_type or self.term_type
         self.term_size = term_size or self.term_size
         return True
 
     def shell_requested(self) -> bool:
+        self._ensure_started()
         return True
 
     def exec_requested(self, command: str) -> bool:
         self.command = command
+        self._ensure_started()
+        return True
+
+    def subsystem_requested(self, subsystem: str) -> bool:
+        self.subsystem = subsystem
+        self._ensure_started()
         return True
 
     def session_started(self) -> None:
+        # 等待 shell/exec/subsystem 请求明确会话类型后再启动目标连接。
+        return None
+
+    def _ensure_started(self) -> None:
+        if self._started:
+            return
+        self._started = True
         asyncio.create_task(self._start())
 
     def data_received(self, data, datatype) -> None:
@@ -415,7 +534,10 @@ class _NativeSSHSession:
             self.process.stdin.write_eof()
         else:
             self._pending_eof = True
-        return False
+        # 客户端结束 stdin 不代表服务端 stdout/stderr 已结束。尤其 VS Code/Cursor
+        # Remote-SSH 会用 `ssh remote sh` 把安装脚本写入 stdin 后立即发送 EOF，
+        # 这里必须保持通道可写，等待安装脚本输出和退出状态回传。
+        return True
 
     def terminal_size_changed(self, width, height, pixwidth, pixheight) -> None:
         if self.process is not None:
@@ -432,20 +554,22 @@ class _NativeSSHSession:
     async def _start(self) -> None:
         try:
             self.ssh_conn = await self.gateway.connect_target(self.target)
-            if self.command is not None:
-                result = await self.ssh_conn.run(self.command, check=False)
-                if self.channel is not None:
-                    if result.stdout:
-                        self.channel.write(result.stdout)
-                    if result.stderr:
-                        self.channel.write(result.stderr)
-                    self.channel.exit(result.exit_status or 0)
-                return
-
-            self.process = await self.ssh_conn.create_process(
-                term_type=self.term_type,
-                term_size=self.term_size,
-            )
+            if self.subsystem is not None:
+                self.process = await self.ssh_conn.create_process(subsystem=self.subsystem)
+            elif self.command is not None:
+                process_kwargs = {}
+                if self.pty_was_requested:
+                    process_kwargs = {
+                        'request_pty': True,
+                        'term_type': self.term_type,
+                        'term_size': self.term_size,
+                    }
+                self.process = await self.ssh_conn.create_process(self.command, **process_kwargs)
+            else:
+                self.process = await self.ssh_conn.create_process(
+                    term_type=self.term_type,
+                    term_size=self.term_size,
+                )
             for data in self._pending_input:
                 self.process.stdin.write(data)
             self._pending_input.clear()
@@ -458,16 +582,25 @@ class _NativeSSHSession:
                     if not data:
                         break
                     if self.channel is not None:
-                        self.channel.write(data)
+                        try:
+                            self.channel.write(data)
+                        except TypeError:
+                            if isinstance(data, bytes):
+                                self.channel.write(data.decode('utf-8', errors='replace'))
+                            else:
+                                self.channel.write(data.encode('utf-8'))
 
             stdout_task = asyncio.create_task(forward_stream(self.process.stdout))
             stderr_task = asyncio.create_task(forward_stream(self.process.stderr))
             await self.process.wait()
             try:
-                await asyncio.wait_for(
+                stream_results = await asyncio.wait_for(
                     asyncio.gather(stdout_task, stderr_task, return_exceptions=True),
                     timeout=2,
                 )
+                for result in stream_results:
+                    if isinstance(result, Exception):
+                        logger.warning('原生 SSH 输出转发异常：%s', result)
             except TimeoutError:
                 for task in (stdout_task, stderr_task):
                     if not task.done():

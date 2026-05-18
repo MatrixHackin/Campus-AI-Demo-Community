@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     ssh_gateway_host: str = '0.0.0.0'
     ssh_gateway_port: int = 2222
     ssh_gateway_public_host: str = '10.120.17.138'
-    ssh_gateway_host_key_path: str | None = None
+    ssh_gateway_host_key_path: str | None = '.run/ssh_gateway_host_key'
     webssh_public_path_prefix: str = '/ssh'
 
     published_cover_storage_dir: str = 'static/covers'

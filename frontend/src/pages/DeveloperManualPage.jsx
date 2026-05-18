@@ -3,9 +3,9 @@ import MarkdownRenderer from '../components/MarkdownRenderer'
 import manualMarkdown from '../content/developer-manual.md?raw'
 
 const manualNavItems = [
-  { href: '#方式一-ai-ide---trae', label: 'AI IDE：Trae' },
-  { href: '#方式二-vs-code-插件---cline--deepseek', label: 'VS Code：Cline + DeepSeek' },
-  { href: '#方式三-终端-agent---codex--阿里云百炼', label: '终端 Agent：Codex + 百炼' },
+  { href: '#平台应用访问路径规范', label: '应用访问路径' },
+  { href: '#利用ide开始-vibecoding', label: 'IDE：VS Code / Cursor' },
+  { href: '#利用cli开始-vibecoding', label: 'CLI：WebSSH / SSH' },
   { href: '#安全规范', label: '安全规范' },
   { href: '#排障清单', label: '排障清单' }
 ]

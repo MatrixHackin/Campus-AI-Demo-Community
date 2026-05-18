@@ -142,6 +142,43 @@ function defaultRepositoryImage(info) {
   return publicRepos[0]?.image || privateRepos[0]?.image || FALLBACK_DEVBOX_IMAGE
 }
 
+
+function sshTargetFromCommand(command) {
+  if (!command) return null
+  const normalized = command.trim().replace(/\s+/g, ' ')
+  const portMatch = normalized.match(/(?:^|\s)-p\s+(\d+)(?:\s|$)/)
+  const port = portMatch?.[1] || '22'
+
+  const loginMatch = normalized.match(/(?:^|\s)-l\s+['"]?([^'"\s]+)['"]?\s+([^\s]+)/)
+  if (loginMatch) {
+    return { login: loginMatch[1], host: loginMatch[2], port }
+  }
+
+  const directMatch = normalized.match(/^ssh\s+(?!-)(.+?)@([^\s]+)(?:\s|$)/)
+  if (directMatch) {
+    return { login: directMatch[1], host: directMatch[2], port }
+  }
+
+  return null
+}
+
+function base64UrlEncode(value) {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte)
+  })
+  return window.btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function ideRemoteUri(protocol, container) {
+  const target = sshTargetFromCommand(container?.native_ssh_command)
+  if (!target || !container?.app_name || !container?.ssh_username) return ''
+  const safeLogin = `${container.app_name}__${base64UrlEncode(container.ssh_username)}`
+  const remotePath = `/home/${encodeURIComponent(container.ssh_username)}`
+  return `${protocol}://vscode-remote/ssh-remote+${safeLogin}@${target.host}:${target.port}${remotePath}?windowId=_blank`
+}
+
 function statusText(status) {
   const statusMap = {
     Running: '运行中',
@@ -212,6 +249,8 @@ function ContainerList({
   savingJobs,
   onCopySsh,
   onDelete,
+  onOpenCursor,
+  onOpenVSCode,
   onOpenApp,
   onOpenPublish,
   onOpenWebSsh,
@@ -244,56 +283,78 @@ function ContainerList({
                 {statusText(container.status)}
               </span>
             </div>
-            <div className="container-row__actions">
-              <button
-                className="container-action-button"
-                type="button"
-                onClick={() => onOpenApp(container)}
-                disabled={!container.url}
-              >
-                访问应用
-              </button>
-              <button
-                className="container-action-button"
-                type="button"
-                onClick={() => onOpenWebSsh(container)}
-                disabled={!container.webssh_url}
-              >
-                WebSSH
-              </button>
-              <button
-                className="container-action-button"
-                type="button"
-                onClick={() => onCopySsh(container)}
-                disabled={!container.native_ssh_command}
-              >
-                复制 SSH
-              </button>
-              <button
-                className={`container-publish-button${container.is_published ? ' container-publish-button--published' : ''}`}
-                type="button"
-                onClick={() => (container.is_published ? onUnpublish(container) : onOpenPublish(container))}
-                disabled={publishingPodName === container.name || !container.app_name}
-              >
-                {container.is_published ? '取消发布' : '发布'}
-              </button>
-              <button
-                className="container-action-button"
-                type="button"
-                title={saveState?.message || '保存当前容器为 Harbor 私有镜像'}
-                onClick={() => onSaveContainer(container)}
-                disabled={isSaving || container.status !== 'Running'}
-              >
-                {isSaving ? '保存中…' : '保存容器'}
-              </button>
-              <button
-                className="container-delete-button"
-                type="button"
-                onClick={() => onDelete(container)}
-                disabled={deletingPodName === container.name || container.status === 'Terminating'}
-              >
-                {deletingPodName === container.name ? '删除中…' : '删除'}
-              </button>
+            <div className="container-row__actions" aria-label={`${displayName} 操作`}>
+              <div className="container-row__action-line">
+                <button
+                  className="container-action-button"
+                  type="button"
+                  onClick={() => onOpenApp(container)}
+                  disabled={!container.url}
+                >
+                  访问应用
+                </button>
+                <button
+                  className={`container-publish-button${container.is_published ? ' container-publish-button--published' : ''}`}
+                  type="button"
+                  onClick={() => (container.is_published ? onUnpublish(container) : onOpenPublish(container))}
+                  disabled={publishingPodName === container.name || !container.app_name}
+                >
+                  {container.is_published ? '取消发布' : '发布'}
+                </button>
+                <button
+                  className="container-action-button"
+                  type="button"
+                  title={saveState?.message || '保存当前容器为 Harbor 私有镜像'}
+                  onClick={() => onSaveContainer(container)}
+                  disabled={isSaving || container.status !== 'Running'}
+                >
+                  {isSaving ? '保存中…' : '保存容器'}
+                </button>
+                <button
+                  className="container-delete-button"
+                  type="button"
+                  onClick={() => onDelete(container)}
+                  disabled={deletingPodName === container.name || container.status === 'Terminating'}
+                >
+                  {deletingPodName === container.name ? '删除中…' : '删除'}
+                </button>
+              </div>
+              <div className="container-row__action-line container-row__action-line--connection">
+                <button
+                  className="container-action-button"
+                  type="button"
+                  onClick={() => onOpenWebSsh(container)}
+                  disabled={!container.webssh_url}
+                >
+                  WebSSH
+                </button>
+                <button
+                  className="container-action-button"
+                  type="button"
+                  onClick={() => onCopySsh(container)}
+                  disabled={!container.native_ssh_command}
+                >
+                  复制 SSH
+                </button>
+                <button
+                  className="container-action-button"
+                  type="button"
+                  onClick={() => onOpenVSCode(container)}
+                  disabled={!container.native_ssh_command}
+                  title="使用本机 VS Code Remote SSH 打开"
+                >
+                  VSCode连接
+                </button>
+                <button
+                  className="container-action-button"
+                  type="button"
+                  onClick={() => onOpenCursor(container)}
+                  disabled={!container.native_ssh_command}
+                  title="使用本机 Cursor Remote SSH 打开"
+                >
+                  Cursor连接
+                </button>
+              </div>
             </div>
           </div>
         )
@@ -653,6 +714,26 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const handleOpenVSCode = useCallback((container) => {
+    const uri = ideRemoteUri('vscode', container)
+    if (!uri) {
+      setContainerError('无法生成 VSCode 连接地址，请先确认 SSH 命令已生成')
+      return
+    }
+    setContainerError('')
+    window.open(uri, '_blank', 'noopener,noreferrer')
+  }, [])
+
+  const handleOpenCursor = useCallback((container) => {
+    const uri = ideRemoteUri('cursor', container)
+    if (!uri) {
+      setContainerError('无法生成 Cursor 连接地址，请先确认 SSH 命令已生成')
+      return
+    }
+    setContainerError('')
+    window.open(uri, '_blank', 'noopener,noreferrer')
+  }, [])
+
   const updateSavingJob = useCallback((podName, patch) => {
     setSavingJobs((prev) => ({
       ...prev,
@@ -848,7 +929,9 @@ export default function DashboardPage() {
               onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
               onOpenApp={handleOpenApp}
+              onOpenCursor={handleOpenCursor}
               onOpenPublish={handleOpenPublishModal}
+              onOpenVSCode={handleOpenVSCode}
               onOpenWebSsh={handleOpenWebSsh}
               onSaveContainer={handleSaveContainer}
               onUnpublish={handleUnpublish}

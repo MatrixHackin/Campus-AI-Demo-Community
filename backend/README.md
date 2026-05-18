@@ -162,7 +162,7 @@ SSH_GATEWAY_ENABLED=true
 SSH_GATEWAY_HOST=0.0.0.0
 SSH_GATEWAY_PORT=2222
 SSH_GATEWAY_PUBLIC_HOST=10.120.17.138
-SSH_GATEWAY_HOST_KEY_PATH=
+SSH_GATEWAY_HOST_KEY_PATH=.run/ssh_gateway_host_key
 WEBSSH_PUBLIC_PATH_PREFIX=/ssh
 PUBLISHED_COVER_STORAGE_DIR=static/covers
 PUBLISHED_COVER_PUBLIC_PREFIX=/api/static/covers
@@ -230,8 +230,8 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - WebSSH 地址格式：`https://gpunion.hkust-gz.edu.cn/ssh/{app_name}+{ssh_username}`。
 - 第一版原生 SSH 地址格式：`ssh {ssh_username}+{app_name}@10.120.17.138 -p 2222`；如果用户名包含
   `@`、空格等特殊字符，工作台会改用等价的 `ssh -l '{ssh_username}+{app_name}' 10.120.17.138 -p 2222`。
-- 建议生产环境设置 `SSH_GATEWAY_HOST_KEY_PATH` 为一个后端进程可读写的固定文件路径，避免后端重启后
-  原生 SSH 客户端提示服务端 HostKey 变化。
+- 后端默认使用 `.run/ssh_gateway_host_key` 作为固定 SSH Gateway HostKey；请不要删除该文件，否则
+  原生 SSH、VS Code Remote-SSH 和 Cursor Remote-SSH 客户端会提示服务端 HostKey 变化。
 - 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
   base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
 - 应用市场封面第一版保存在后端本地 `PUBLISHED_COVER_STORAGE_DIR`，数据库只保存 URL；如果后续图片量变大，
