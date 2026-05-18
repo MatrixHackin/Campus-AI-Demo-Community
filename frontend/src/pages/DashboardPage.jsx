@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   checkAppName,
   commitContainer,
@@ -375,9 +376,10 @@ function PublishAppModal({
   onSubmit
 }) {
   if (!app) return null
+  if (typeof document === 'undefined') return null
 
-  return (
-    <div className="modal-backdrop" role="presentation">
+  return createPortal(
+    <div className="modal-backdrop modal-backdrop--dashboard" role="presentation">
       <div className="modal-card publish-modal-card" role="dialog" aria-modal="true" aria-labelledby="publish-title">
         <div className="modal-card__header">
           <div>
@@ -429,7 +431,8 @@ function PublishAppModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -445,9 +448,11 @@ function ContainerApplyModal({
   onClose,
   onSubmit
 }) {
-  return (
-    <div className="modal-backdrop" role="presentation">
-      <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="container-apply-title">
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
+    <div className="modal-backdrop modal-backdrop--dashboard" role="presentation">
+      <div className="modal-card dashboard-modal-card" role="dialog" aria-modal="true" aria-labelledby="container-apply-title">
         <div className="modal-card__header">
           <div>
             <h2 id="container-apply-title">申请容器</h2>
@@ -503,7 +508,8 @@ function ContainerApplyModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

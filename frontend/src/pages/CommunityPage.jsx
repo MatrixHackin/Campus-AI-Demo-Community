@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   deleteAppReview,
   getAppReviews,
@@ -9,7 +10,7 @@ import {
 } from '../api/client'
 import AppShell from '../components/AppShell'
 
-const REVIEW_COMMENT_MAX_LENGTH = 300
+const REVIEW_COMMENT_MAX_LENGTH = 240
 
 function AppCover({ app }) {
   if (app.cover_url) {
@@ -81,7 +82,9 @@ function ReviewModal({
   if (!app) return null
   const remaining = REVIEW_COMMENT_MAX_LENGTH - form.comment.length
 
-  return (
+  if (typeof document === 'undefined') return null
+
+  return createPortal(
     <div className="modal-backdrop modal-backdrop--review" role="presentation">
       <section className="modal-card review-modal-card" role="dialog" aria-modal="true" aria-labelledby="review-title">
         <div className="modal-card__header">
@@ -109,6 +112,7 @@ function ReviewModal({
             <textarea
               value={form.comment}
               maxLength={REVIEW_COMMENT_MAX_LENGTH}
+              rows={3}
               onChange={(event) => onChangeForm((prev) => ({ ...prev, comment: event.target.value }))}
               placeholder="写下你的体验、建议或问题。"
               disabled={submitting}
@@ -118,7 +122,7 @@ function ReviewModal({
 
           {error ? <div className="feedback feedback--error">{error}</div> : null}
 
-          <div className="modal-actions review-modal-actions">
+          <div className={`modal-actions review-modal-actions${form.hasReview ? ' review-modal-actions--split' : ''}`}>
             {form.hasReview ? (
               <button className="btn btn--ghost" type="button" onClick={onDelete} disabled={submitting}>
                 删除我的评价
@@ -172,7 +176,8 @@ function ReviewModal({
           </div>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body
   )
 }
 

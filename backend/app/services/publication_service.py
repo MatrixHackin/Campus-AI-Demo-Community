@@ -11,7 +11,7 @@ from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
 
 APP_DESCRIPTION_MAX_LENGTH = 40
-APP_REVIEW_COMMENT_MAX_LENGTH = 300
+APP_REVIEW_COMMENT_MAX_LENGTH = 240
 logger = logging.getLogger(__name__)
 
 

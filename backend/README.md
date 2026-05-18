@@ -231,7 +231,7 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - `POST /api/v1/community/apps/{publication_id}/like`：点赞或取消点赞。
 - `GET /api/v1/community/apps/{publication_id}/reviews`：查询应用最近评价和当前用户评价。
 - `POST /api/v1/community/apps/{publication_id}/review`：提交或更新当前用户评分评论，评分范围 0-5，
-  评论最多 300 个字符。
+  评论最多 240 个字符。
 - `DELETE /api/v1/community/apps/{publication_id}/review`：删除当前用户评价。
 - `DELETE /api/v1/community/apps/{pod_name}/publish`：取消发布当前用户应用。
 

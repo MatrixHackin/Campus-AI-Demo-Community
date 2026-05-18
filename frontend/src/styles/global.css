@@ -908,6 +908,13 @@ button {
 .modal-backdrop--review {
   z-index: 120;
   align-items: center;
+  overflow: hidden;
+}
+
+.modal-backdrop--dashboard {
+  z-index: 120;
+  align-items: center;
+  overflow: hidden;
 }
 
 .modal-card {
@@ -1035,10 +1042,36 @@ button {
   width: min(100%, 620px);
 }
 
+.modal-backdrop--dashboard .modal-card {
+  max-height: min(720px, calc(100vh - 48px));
+  margin-top: 0;
+}
+
+.dashboard-modal-card {
+  width: min(100%, 560px);
+}
+
 .review-modal-card {
   width: min(100%, 680px);
-  max-height: min(760px, calc(100vh - 48px));
+  max-height: min(720px, calc(100vh - 48px));
   margin-top: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0;
+}
+
+.review-modal-card .modal-card__header {
+  margin-bottom: 16px;
+}
+
+.review-modal-card .modal-form {
+  gap: 12px;
+}
+
+.review-modal-card .modal-form textarea {
+  min-height: 92px;
+  max-height: 92px;
 }
 
 .star-rating {
@@ -1133,10 +1166,12 @@ button {
 }
 
 .review-list {
+  min-height: 0;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
-  margin-top: 22px;
-  padding-top: 18px;
+  margin-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid rgba(16, 32, 51, 0.08);
 }
 
@@ -1193,9 +1228,11 @@ button {
 }
 
 .review-list__scroll {
-  max-height: 260px;
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
   display: grid;
+  align-content: start;
   gap: 10px;
   padding: 10px;
   border-radius: 20px;
@@ -2254,6 +2291,31 @@ button {
     padding: 18px;
   }
 
+  .modal-backdrop--review {
+    align-items: center;
+  }
+
+  .modal-backdrop--dashboard {
+    align-items: center;
+  }
+
+  .modal-backdrop--dashboard .modal-card {
+    max-height: calc(100vh - 28px);
+  }
+
+  .review-modal-card {
+    max-height: calc(100vh - 28px);
+  }
+
+  .review-modal-card .modal-form textarea {
+    min-height: 78px;
+    max-height: 78px;
+  }
+
+  .star-rating__star {
+    font-size: 1.48rem;
+  }
+
   .market-panel {
     padding: 18px;
   }
@@ -2286,6 +2348,10 @@ button {
   .review-modal-actions {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .review-modal-actions--split {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .review-modal-actions .btn--ghost {

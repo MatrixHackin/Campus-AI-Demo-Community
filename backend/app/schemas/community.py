@@ -43,7 +43,7 @@ class PublishedAppListResponse(BaseModel):
 
 class AppReviewRequest(BaseModel):
     rating: int = Field(..., ge=0, le=5)
-    comment: str | None = Field(default=None, max_length=300)
+    comment: str | None = Field(default=None, max_length=240)
 
 
 class AppReviewListResponse(BaseModel):
