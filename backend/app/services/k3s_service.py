@@ -1171,13 +1171,13 @@ class K3SService:
             'app_name': app_name,
             'url': annotations.get('campus-ai/public-url'),
             'ssh_username': annotations.get('campus-ai/ssh-username'),
-            'webssh_url': K3SService._webssh_url_from_annotations(annotations, app_name),
+            'webssh_url': K3SService._webssh_url_from_annotations(annotations),
             'native_ssh_command': annotations.get('campus-ai/native-ssh-command'),
             'is_published': False,
         }
 
     @staticmethod
-    def _webssh_url_from_annotations(annotations: dict[str, str], app_name: str | None) -> str | None:
+    def _webssh_url_from_annotations(annotations: dict[str, str]) -> str | None:
         value = annotations.get('campus-ai/webssh-url')
         if value:
             return value

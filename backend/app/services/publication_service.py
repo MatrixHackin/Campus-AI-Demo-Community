@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import BinaryIO
@@ -10,6 +11,7 @@ from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
 
 APP_DESCRIPTION_MAX_LENGTH = 40
+logger = logging.getLogger(__name__)
 
 
 class PublicationService:
@@ -100,8 +102,8 @@ class PublicationService:
         path = self._cover_dir() / filename
         try:
             path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning('删除应用封面文件失败，已跳过：%s', exc)
 
     def _save_cover_file(self, file: BinaryIO, content_type: str | None) -> str:
         if content_type not in {'image/webp', 'image/jpeg', 'image/png'}:

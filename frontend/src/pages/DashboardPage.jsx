@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   checkAppName,
   commitContainer,
@@ -530,6 +530,26 @@ export default function DashboardPage() {
   const [publishingPodName, setPublishingPodName] = useState('')
   const [savingJobs, setSavingJobs] = useState({})
   const [selectedImage, setSelectedImage] = useState(FALLBACK_DEVBOX_IMAGE)
+  const containerPollTimersRef = useRef([])
+  const commitPollTimersRef = useRef([])
+
+  const scheduleManagedTimeout = useCallback((timersRef, callback, delay) => {
+    const timerId = window.setTimeout(() => {
+      timersRef.current = timersRef.current.filter((id) => id !== timerId)
+      callback()
+    }, delay)
+    timersRef.current.push(timerId)
+  }, [])
+
+  const clearManagedTimeouts = useCallback((timersRef) => {
+    timersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+    timersRef.current = []
+  }, [])
+
+  useEffect(() => () => {
+    clearManagedTimeouts(containerPollTimersRef)
+    clearManagedTimeouts(commitPollTimersRef)
+  }, [clearManagedTimeouts])
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -581,7 +601,7 @@ export default function DashboardPage() {
   }, [harborInfo, selectedImage])
 
   const pollContainersUntil = useCallback((shouldContinue, attempt = 1) => {
-    window.setTimeout(async () => {
+    scheduleManagedTimeout(containerPollTimersRef, async () => {
       const result = await loadContainers({ showLoading: false })
       if (!result || attempt >= CONTAINER_REFRESH_MAX_ATTEMPTS) {
         return
@@ -590,7 +610,7 @@ export default function DashboardPage() {
         pollContainersUntil(shouldContinue, attempt + 1)
       }
     }, CONTAINER_REFRESH_INTERVAL_MS)
-  }, [loadContainers])
+  }, [loadContainers, scheduleManagedTimeout])
 
   const resetApplyForm = useCallback(() => {
     setAppName('')
@@ -745,7 +765,7 @@ export default function DashboardPage() {
   }, [])
 
   const pollCommitJob = useCallback((podName, jobName, attempt = 1) => {
-    window.setTimeout(async () => {
+    scheduleManagedTimeout(commitPollTimersRef, async () => {
       try {
         const status = await getK3sJobStatus(jobName)
         updateSavingJob(podName, status)
@@ -775,7 +795,7 @@ export default function DashboardPage() {
         setContainerError(err.message)
       }
     }, COMMIT_JOB_REFRESH_INTERVAL_MS)
-  }, [loadHarborImages, updateSavingJob])
+  }, [loadHarborImages, scheduleManagedTimeout, updateSavingJob])
 
   const handleSaveContainer = useCallback(async (container) => {
     if (!container?.name) return

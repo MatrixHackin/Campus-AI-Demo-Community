@@ -8,7 +8,9 @@ import { getWebSshSocketUrl } from '../api/client'
 import AppShell from '../components/AppShell'
 
 function parseTarget(target = '') {
-  const index = target.lastIndexOf('+')
+  // app_name 本身只允许小写字母/数字/中划线，不包含 `+`；
+  // username 理论上可能包含 `+`，因此必须按第一个 `+` 分隔。
+  const index = target.indexOf('+')
   if (index <= 0 || index === target.length - 1) {
     return null
   }

@@ -69,6 +69,7 @@ class TokenStore:
             access_token=access_token,
         )
         with self._lock:
+            self._cleanup_expired_locked()
             self._sessions[token] = session
         return session
 
@@ -90,6 +91,7 @@ class TokenStore:
         state = token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
         with self._lock:
+            self._cleanup_expired_locked()
             self._oauth_states[state] = OAuthStateRecord(
                 state=state,
                 code_verifier=code_verifier,
@@ -105,3 +107,13 @@ class TokenStore:
         if record.expires_at <= datetime.now(timezone.utc):
             return None
         return record
+
+    def _cleanup_expired_locked(self) -> None:
+        """清理已过期的会话和 OAuth state；调用方必须持有 self._lock。"""
+        now = datetime.now(timezone.utc)
+        for token, session in list(self._sessions.items()):
+            if session.expires_at <= now:
+                self._sessions.pop(token, None)
+        for state, record in list(self._oauth_states.items()):
+            if record.expires_at <= now:
+                self._oauth_states.pop(state, None)
