@@ -235,7 +235,7 @@ class PrometheusService:
 
     def _request(self, path: str, *, params: dict[str, Any]) -> dict[str, Any]:
         if not self.configured:
-            raise RuntimeError('Prometheus 未配置')
+            raise RuntimeError('资源监控暂不可用')
 
         response = requests.get(
             f'{self.settings.prometheus_url.rstrip("/")}{path}',
@@ -245,7 +245,7 @@ class PrometheusService:
         response.raise_for_status()
         data = response.json()
         if data.get('status') != 'success':
-            raise RuntimeError(f'Prometheus 查询失败：{data}')
+            raise RuntimeError('资源监控查询失败')
         return data
 
     def _range_step(self, duration_seconds: float) -> int:

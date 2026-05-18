@@ -20,7 +20,7 @@ const COVER_CANVAS_WIDTH = 960
 const COVER_CANVAS_HEIGHT = 540
 const APP_DESCRIPTION_MAX_LENGTH = 40
 const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
-const COMMIT_JOB_REFRESH_INTERVAL_MS = 3000
+const COMMIT_JOB_REFRESH_INTERVAL_MS = 5000
 const COMMIT_JOB_MAX_ATTEMPTS = 200
 const FALLBACK_DEVBOX_IMAGE = 'gpunion2.io/dev/devbox:latest'
 
@@ -227,7 +227,7 @@ function ImageList({
               type="button"
               aria-pressed={selectedImage === repo.image}
               onClick={() => onSelectImage(repo.image)}
-              title={`${repo.image}\nArtifacts ${repo.artifact_count || 0} · 拉取 ${repo.pull_count || 0} · 更新 ${formatDateTime(repo.update_time)}`}
+              title={`${repo.image}\n版本 ${repo.artifact_count || 0} · 拉取 ${repo.pull_count || 0} · 更新 ${formatDateTime(repo.update_time)}`}
             >
               <span className="image-button__thumb" aria-hidden="true">
                 <span>{imageShortName(repo).slice(0, 1).toUpperCase()}</span>
@@ -304,7 +304,7 @@ function ContainerList({
                 <button
                   className="container-action-button"
                   type="button"
-                  title={saveState?.message || '保存当前容器为 Harbor 私有镜像'}
+                  title={saveState?.message || '保存当前容器为个人镜像'}
                   onClick={() => onSaveContainer(container)}
                   disabled={isSaving || container.status !== 'Running'}
                 >
@@ -408,7 +408,7 @@ function PublishAppModal({
           <label>
             <span>封面图片</span>
             <input type="file" accept="image/*" onChange={onCoverChange} disabled={submitting} />
-            <small>前端会先压缩为轻量 WebP 图片；第一版存储在后端本地，后续可切换图床/对象存储。</small>
+            <small>上传后会自动压缩为适合展示的轻量图片。</small>
           </label>
 
           <p className="publish-cover-note">
@@ -458,7 +458,7 @@ function ContainerApplyModal({
           <label>
             <span>使用镜像</span>
             <input type="text" value={imageNameFromRef(selectedImage)} title={selectedImage} disabled />
-            <small>容器会使用右侧“镜像仓库”当前点选的镜像；默认选中公有 devbox。</small>
+            <small>容器将使用当前选中的镜像，默认选中公有开发镜像。</small>
           </label>
 
           <label>
@@ -481,7 +481,7 @@ function ContainerApplyModal({
               type="password"
               value={connectionPassword}
               onChange={(event) => onConnectionPasswordChange(event.target.value)}
-              placeholder="至少 6 位，后续用于 SSH 连接"
+              placeholder="至少 6 位，用于 SSH 连接"
               autoComplete="new-password"
               minLength={6}
               disabled={submitting}
@@ -912,13 +912,13 @@ export default function DashboardPage() {
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
-    ? harborInfo?.message || 'Harbor 未配置'
+    ? harborInfo?.message || '镜像仓库暂不可用'
     : harborInfo?.private_message
   const publicMessage = !harborConfigured
-    ? harborInfo?.message || 'Harbor 未配置'
+    ? harborInfo?.message || '镜像仓库暂不可用'
     : harborInfo?.public_message
   const visibleContainers = (containersInfo?.containers || []).filter(
-    (container) => !hiddenDeletingPods.includes(container.name)
+    (container) => container.status !== 'Terminating' && !hiddenDeletingPods.includes(container.name)
   )
 
   return (

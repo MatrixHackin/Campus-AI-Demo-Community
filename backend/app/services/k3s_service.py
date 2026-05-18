@@ -233,7 +233,10 @@ class K3SService:
             raise RuntimeError(str(exc)) from exc
 
         try:
-            pods = self._core().list_namespaced_pod(namespace=namespace).items
+            pods = self._core().list_namespaced_pod(
+                namespace=namespace,
+                label_selector='app=campus-ai-devbox',
+            ).items
         except self._api_exception_class() as exc:
             if exc.status == 404:
                 return {
@@ -246,7 +249,11 @@ class K3SService:
             logger.warning('K3s namespace %s 容器查询异常：%s', namespace, exc)
             raise RuntimeError(f'查询容器失败：{exc}') from exc
 
-        containers = [self._container_item_from_pod(pod) for pod in pods]
+        containers = [
+            self._container_item_from_pod(pod)
+            for pod in pods
+            if not (pod.metadata and pod.metadata.deletion_timestamp)
+        ]
         try:
             published_pod_names = self.publication_repository.get_published_pod_names(
                 [container['name'] for container in containers if container.get('name')]
@@ -324,11 +331,11 @@ class K3SService:
         if not emp_id:
             raise RuntimeError('当前用户缺少 emp_id，无法保存容器')
         if not email:
-            raise RuntimeError('当前用户缺少邮箱，无法定位 Harbor 私有项目')
+            raise RuntimeError('当前用户缺少邮箱，无法保存个人镜像')
         if not self.settings.harbor_registry.strip():
-            raise RuntimeError('未配置 Harbor Registry')
+            raise RuntimeError('镜像仓库暂不可用')
         if not self.settings.harbor_admin_username or not self.settings.harbor_admin_password:
-            raise RuntimeError('未配置 Harbor 管理员账号，无法推送保存镜像')
+            raise RuntimeError('镜像保存服务暂不可用')
 
         normalized_image_name = self._normalize_commit_image_name(image_name)
         namespace = self.namespace_for_emp_id(emp_id)
@@ -363,7 +370,7 @@ class K3SService:
             credentials_secret_name = self._ensure_harbor_credentials_secret(email, namespace)
         except Exception as exc:
             logger.warning('准备保存容器所需 Harbor 私有项目或 imagePullSecret 失败：%s', exc)
-            raise RuntimeError(f'准备 Harbor 私有项目或 Secret 失败：{exc}') from exc
+            raise RuntimeError(f'准备个人镜像仓库失败：{exc}') from exc
 
         image_ref = f'{push_registry}/{project_name}/{normalized_image_name}:latest'
         job_name = f'commit-{uuid.uuid4().hex[:8]}'
@@ -1143,7 +1150,7 @@ class K3SService:
                 logger.warning('K3s devbox 应用 %s 删除资源 %s 异常：%s', app_name or pod_name, resource_name, exc)
 
         if strict and errors:
-            raise RuntimeError('删除 K3s 资源失败：' + '; '.join(errors))
+            raise RuntimeError('删除容器资源失败：' + '; '.join(errors))
 
     @staticmethod
     def _container_item_from_pod(pod) -> dict[str, Any]:

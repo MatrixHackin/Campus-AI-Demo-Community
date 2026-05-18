@@ -14,7 +14,7 @@ def create_application() -> FastAPI:
     application = FastAPI(
         title=settings.app_name,
         version='0.1.0',
-        description='Campus AI Demo Community - 分离式前后端示例',
+        description='Campus AI Community API',
     )
 
     application.add_middleware(

@@ -28,7 +28,7 @@ export default function DeveloperManualPage() {
         <section className="manual-panel" aria-labelledby="manual-title">
           <div className="section-heading">
             <h1 id="manual-title">开发手册</h1>
-            <p>渲染本地 Markdown：frontend/src/content/developer-manual.md</p>
+            <p>请按手册完成开发环境连接、应用访问配置和安全设置。</p>
           </div>
 
           <MarkdownRenderer markdown={manualMarkdown} />

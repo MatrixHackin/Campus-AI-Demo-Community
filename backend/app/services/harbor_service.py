@@ -47,10 +47,10 @@ class HarborService:
         项目设为 private，并把用户加入项目 developer 角色。
         """
         if not self.configured:
-            raise RuntimeError('Harbor 未配置')
+            raise RuntimeError('镜像仓库暂不可用')
         normalized_email = email.strip().lower()
         if not normalized_email:
-            raise ValueError('缺少用户邮箱，无法创建 Harbor 私有项目')
+            raise ValueError('缺少用户邮箱，无法准备个人镜像仓库')
 
         user_id = self._ensure_user(normalized_email)
         project_name = self.user_project_name(normalized_email)
@@ -77,7 +77,7 @@ class HarborService:
         }
 
         if not self.configured:
-            base_response['message'] = 'Harbor 未配置'
+            base_response['message'] = '镜像仓库暂不可用'
             return base_response
 
         public_project_name = self.settings.harbor_public_project.strip()
@@ -87,12 +87,12 @@ class HarborService:
             if public_project.get('error'):
                 base_response['public_message'] = public_project['error']
             elif not public_project['exists']:
-                base_response['public_message'] = f'未找到 Harbor 公有项目：{public_project_name}'
+                base_response['public_message'] = '暂无可用公有镜像'
         else:
-            base_response['public_message'] = '未配置 Harbor 公有项目'
+            base_response['public_message'] = '暂无可用公有镜像'
 
         if not email:
-            base_response['private_message'] = '当前登录用户缺少邮箱，无法匹配 Harbor 私有项目'
+            base_response['private_message'] = '当前账号缺少邮箱，无法加载个人镜像'
             return base_response
 
         project_name = self.user_project_name(email)
@@ -102,7 +102,7 @@ class HarborService:
         if project.get('error'):
             base_response['private_message'] = project['error']
         elif not project['exists']:
-            base_response['private_message'] = '未找到当前邮箱对应的 Harbor 私有项目'
+            base_response['private_message'] = '暂无个人镜像'
         return base_response
 
     def get_user_private_project(self, email: str | None, include_tags: bool = False) -> dict:
@@ -161,11 +161,11 @@ class HarborService:
             timeout=self._timeout(),
         )
         if response.status_code not in {201, 409}:
-            raise RuntimeError(f'创建 Harbor 用户失败：HTTP {response.status_code} {response.text}')
+            raise RuntimeError(f'准备镜像仓库账号失败：HTTP {response.status_code}')
 
         user_id = self._get_user_id(email)
         if user_id is None:
-            raise RuntimeError('创建 Harbor 用户后查询失败')
+            raise RuntimeError('准备镜像仓库账号失败')
         return user_id
 
     def _ensure_project(self, project_name: str) -> int:
@@ -184,11 +184,11 @@ class HarborService:
             timeout=self._timeout(),
         )
         if response.status_code not in {201, 409}:
-            raise RuntimeError(f'创建 Harbor 私有项目失败：HTTP {response.status_code} {response.text}')
+            raise RuntimeError(f'准备个人镜像仓库失败：HTTP {response.status_code}')
 
         project_id = self._get_project_id(project_name)
         if project_id is None:
-            raise RuntimeError('创建 Harbor 私有项目后查询失败')
+            raise RuntimeError('准备个人镜像仓库失败')
         return project_id
 
     def _ensure_project_member(self, project_id: int, user_id: int) -> None:
@@ -202,7 +202,7 @@ class HarborService:
             timeout=self._timeout(),
         )
         if response.status_code not in {201, 409}:
-            raise RuntimeError(f'添加 Harbor 项目成员失败：HTTP {response.status_code} {response.text}')
+            raise RuntimeError(f'配置个人镜像仓库权限失败：HTTP {response.status_code}')
 
     def _get_project(self, project_name: str, include_tags: bool = False, include_quota: bool = True) -> dict:
         result = {
@@ -228,10 +228,10 @@ class HarborService:
         except requests.RequestException as exc:
             logger.warning('Harbor project query failed for %s: %s', project_name, exc)
             result['quota'] = {'used': {}, 'limit': {}}
-            result['error'] = f'Harbor 查询失败：{exc}'
+            result['error'] = '镜像仓库查询失败'
         except Exception as exc:
             logger.warning('Unexpected Harbor project query failure for %s: %s', project_name, exc)
-            result['error'] = f'Harbor 查询异常：{exc}'
+            result['error'] = '镜像仓库查询异常'
 
         return result
 
@@ -262,14 +262,14 @@ class HarborService:
             )
         except requests.RequestException as exc:
             logger.warning('Harbor repository query failed for %s: %s', project_name, exc)
-            return [], False, f'Harbor 仓库查询失败：{exc}'
+            return [], False, '镜像列表查询失败'
 
         if response.status_code == 404:
             return [], False, None
 
         if response.status_code in {401, 403}:
             logger.warning('Harbor repository auth failed for %s: HTTP %s', project_name, response.status_code)
-            return [], False, f'Harbor 认证或权限不足：HTTP {response.status_code}'
+            return [], False, '镜像仓库权限不足'
 
         if response.status_code != 200:
             logger.warning(
@@ -278,7 +278,7 @@ class HarborService:
                 response.status_code,
                 response.text,
             )
-            return [], False, f'Harbor 仓库查询失败：HTTP {response.status_code}'
+            return [], False, f'镜像列表查询失败：HTTP {response.status_code}'
 
         repos = []
         for repo in response.json():

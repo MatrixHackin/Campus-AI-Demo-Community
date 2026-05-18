@@ -897,14 +897,19 @@ button {
   inset: 0;
   z-index: 80;
   display: grid;
-  place-items: center;
+  align-items: start;
+  justify-items: center;
   padding: 24px;
+  overflow-y: auto;
   background: rgba(16, 32, 51, 0.28);
   backdrop-filter: blur(10px);
 }
 
 .modal-card {
   width: min(100%, 520px);
+  max-height: calc(100vh - 48px);
+  margin-top: clamp(36px, 8vh, 88px);
+  overflow-y: auto;
   border-radius: 28px;
   border: 1px solid rgba(255, 255, 255, 0.76);
   background:
@@ -996,7 +1001,7 @@ button {
 .modal-form textarea {
   min-height: 120px;
   padding-top: 13px;
-  resize: vertical;
+  resize: none;
   font: inherit;
   line-height: 1.5;
 }
