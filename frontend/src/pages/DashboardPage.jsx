@@ -22,6 +22,7 @@ const APP_DESCRIPTION_MAX_LENGTH = 40
 const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const COMMIT_JOB_REFRESH_INTERVAL_MS = 3000
 const COMMIT_JOB_MAX_ATTEMPTS = 200
+const FALLBACK_DEVBOX_IMAGE = 'gpunion2.io/dev/devbox:latest'
 
 function containerFromCreateResult(result) {
   return {
@@ -120,6 +121,27 @@ function imageNameFromRef(image) {
   return lastPart.split(':')[0] || '镜像'
 }
 
+function allRepositoryImages(info) {
+  return [
+    defaultRepositoryImage(info),
+    ...((info?.private_project?.repos || []).map((repo) => repo.image)),
+    ...((info?.public_project_info?.repos || []).map((repo) => repo.image))
+  ].filter(Boolean)
+}
+
+function defaultRepositoryImage(info) {
+  const publicRepos = info?.public_project_info?.repos || []
+  const privateRepos = info?.private_project?.repos || []
+  const devboxRepo = publicRepos.find((repo) => (
+    repo.name === 'devbox' || /(^|\/)devbox(?::|$)/.test(repo.image || '')
+  ))
+  if (devboxRepo?.image) return devboxRepo.image
+  if (info?.registry && info?.public_project) {
+    return `${info.registry.replace(/\/$/, '')}/${info.public_project}/devbox:latest`
+  }
+  return publicRepos[0]?.image || privateRepos[0]?.image || FALLBACK_DEVBOX_IMAGE
+}
+
 function statusText(status) {
   const statusMap = {
     Running: '运行中',
@@ -132,7 +154,16 @@ function statusText(status) {
   return statusMap[status] || status || '未知'
 }
 
-function ImageList({ title, project, message, loading, limit, variant = 'private' }) {
+function ImageList({
+  title,
+  project,
+  message,
+  loading,
+  limit,
+  selectedImage,
+  variant = 'private',
+  onSelectImage
+}) {
   const repos = project?.repos || []
   const visibleRepos = repos.slice(0, limit)
   const countLabel = `${Math.min(repos.length, limit)}/${limit}`
@@ -154,9 +185,11 @@ function ImageList({ title, project, message, loading, limit, variant = 'private
         <div className={`image-button-grid image-button-grid--${variant}`}>
           {visibleRepos.map((repo) => (
             <button
-              className="image-button"
+              className={`image-button${selectedImage === repo.image ? ' image-button--selected' : ''}`}
               key={repo.full_name}
               type="button"
+              aria-pressed={selectedImage === repo.image}
+              onClick={() => onSelectImage(repo.image)}
               title={`${repo.image}\nArtifacts ${repo.artifact_count || 0} · 拉取 ${repo.pull_count || 0} · 更新 ${formatDateTime(repo.update_time)}`}
             >
               <span className="image-button__thumb" aria-hidden="true">
@@ -344,6 +377,7 @@ function ContainerApplyModal({
   appNameCheck,
   connectionPassword,
   error,
+  selectedImage,
   submitting,
   onAppNameChange,
   onConnectionPasswordChange,
@@ -360,6 +394,12 @@ function ContainerApplyModal({
         </div>
 
         <form className="modal-form" onSubmit={onSubmit}>
+          <label>
+            <span>使用镜像</span>
+            <input type="text" value={imageNameFromRef(selectedImage)} title={selectedImage} disabled />
+            <small>容器会使用右侧“镜像仓库”当前点选的镜像；默认选中公有 devbox。</small>
+          </label>
+
           <label>
             <span>app_name</span>
             <input
@@ -428,6 +468,7 @@ export default function DashboardPage() {
   const [publishError, setPublishError] = useState('')
   const [publishingPodName, setPublishingPodName] = useState('')
   const [savingJobs, setSavingJobs] = useState({})
+  const [selectedImage, setSelectedImage] = useState(FALLBACK_DEVBOX_IMAGE)
 
   const loadHarborImages = useCallback(async () => {
     setLoading(true)
@@ -470,6 +511,13 @@ export default function DashboardPage() {
     loadHarborImages()
     loadContainers()
   }, [loadHarborImages, loadContainers])
+
+  useEffect(() => {
+    if (!harborInfo) return
+    const images = allRepositoryImages(harborInfo)
+    if (selectedImage && images.includes(selectedImage)) return
+    setSelectedImage(defaultRepositoryImage(harborInfo))
+  }, [harborInfo, selectedImage])
 
   const pollContainersUntil = useCallback((shouldContinue, attempt = 1) => {
     window.setTimeout(async () => {
@@ -519,6 +567,7 @@ export default function DashboardPage() {
       setApplyFormError('连接密码至少需要 6 位')
       return
     }
+    const imageForContainer = selectedImage || defaultRepositoryImage(harborInfo)
 
     setCreatingContainer(true)
     setContainerError('')
@@ -532,7 +581,8 @@ export default function DashboardPage() {
       }
       const createdContainer = await createDevboxContainer({
         app_name: normalizedAppName,
-        connection_password: connectionPassword
+        connection_password: connectionPassword,
+        image: imageForContainer
       })
       setContainersInfo((prev) => ({
         namespace: createdContainer.namespace || prev?.namespace,
@@ -552,7 +602,7 @@ export default function DashboardPage() {
     } finally {
       setCreatingContainer(false)
     }
-  }, [appName, connectionPassword, pollContainersUntil, resetApplyForm])
+  }, [appName, connectionPassword, harborInfo, pollContainersUntil, resetApplyForm, selectedImage])
 
   const handleDeleteContainer = useCallback(async (container) => {
     if (!container?.name) return
@@ -826,7 +876,9 @@ export default function DashboardPage() {
                 message={privateMessage}
                 loading={loading}
                 limit={3}
+                selectedImage={selectedImage}
                 variant="private"
+                onSelectImage={setSelectedImage}
               />
               <ImageList
                 title="公有镜像"
@@ -834,7 +886,9 @@ export default function DashboardPage() {
                 message={publicMessage}
                 loading={loading}
                 limit={9}
+                selectedImage={selectedImage}
                 variant="public"
+                onSelectImage={setSelectedImage}
               />
             </>
           ) : null}
@@ -847,6 +901,7 @@ export default function DashboardPage() {
           appNameCheck={appNameCheck}
           connectionPassword={connectionPassword}
           error={applyFormError}
+          selectedImage={selectedImage}
           submitting={creatingContainer}
           onAppNameChange={handleAppNameChange}
           onConnectionPasswordChange={setConnectionPassword}

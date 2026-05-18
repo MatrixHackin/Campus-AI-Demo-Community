@@ -99,12 +99,41 @@ class K3SService:
             'message': None if available else '该应用名称已被使用',
         }
 
+    def _resolve_devbox_image(self, *, image: str | None, email: str | None) -> tuple[str, bool]:
+        """解析用户从“镜像仓库”点选的镜像。
+
+        前端“镜像仓库”始终保持一个选中项，默认是公有 devbox，因此这里不再反查 Harbor
+        校验镜像是否存在，只判断是否需要为私有镜像挂载当前用户 namespace 的 pull secret。
+        """
+        image_ref = (image or self.settings.k3s_devbox_image).strip()
+        if not image_ref:
+            image_ref = self.settings.k3s_devbox_image.strip()
+        if any(char.isspace() for char in image_ref):
+            raise ValueError('镜像地址不合法')
+
+        default_image = self.settings.k3s_devbox_image.strip()
+        if image_ref == default_image:
+            return image_ref, False
+
+        public_prefix = (
+            f'{self.settings.harbor_registry.rstrip("/")}/'
+            f'{self.settings.harbor_public_project.strip().strip("/")}/'
+        )
+        if self.settings.harbor_public_project and image_ref.startswith(public_prefix):
+            return image_ref, False
+
+        if not email:
+            raise ValueError('当前用户缺少邮箱，无法拉取私有镜像')
+        return image_ref, True
+
     def create_devbox_container(
         self,
         emp_id: str | None,
         username: str,
+        email: str | None,
         app_name: str,
         connection_password: str,
+        image: str | None = None,
     ) -> dict[str, Any]:
         """在 emp_id namespace 下创建一个默认 devbox 容器 Pod。
 
@@ -120,6 +149,10 @@ class K3SService:
             raise FileExistsError('该应用名称对应的 Kubernetes 资源已存在')
 
         namespace = self._ensure_user_namespace_or_raise(emp_id)
+        image_ref, needs_private_pull_secret = self._resolve_devbox_image(image=image, email=email)
+        image_pull_secret_name = None
+        if needs_private_pull_secret:
+            image_pull_secret_name = self._ensure_harbor_pull_secret(email, namespace)
         pod_name = f'campus-devbox-{uuid.uuid4().hex[:8]}'
         ssh_service_name = f'{normalized_app_name}-ssh-svc'
         pod = self._devbox_pod_body(
@@ -128,6 +161,8 @@ class K3SService:
             emp_id=emp_id or '',
             app_name=normalized_app_name,
             ssh_username=username,
+            image_ref=image_ref,
+            image_pull_secret_name=image_pull_secret_name,
         )
         try:
             self.container_repository.create_container_record(
@@ -177,7 +212,7 @@ class K3SService:
             'ssh_username': username,
             'webssh_url': self.webssh_url(normalized_app_name, username),
             'native_ssh_command': self.native_ssh_command(normalized_app_name, username),
-            'image': self.settings.k3s_devbox_image,
+            'image': image_ref,
             'cpu': self.settings.k3s_devbox_cpu,
             'memory': self.settings.k3s_devbox_memory,
             'status': 'creating',
@@ -547,6 +582,8 @@ class K3SService:
         emp_id: str,
         app_name: str,
         ssh_username: str,
+        image_ref: str,
+        image_pull_secret_name: str | None = None,
     ):
         from kubernetes import client
 
@@ -572,16 +609,21 @@ class K3SService:
                     'campus-ai/ssh-username': ssh_username,
                     'campus-ai/webssh-url': self.webssh_url(app_name, ssh_username),
                     'campus-ai/native-ssh-command': self.native_ssh_command(app_name, ssh_username),
+                    'campus-ai/image': image_ref,
                 },
             ),
             spec=client.V1PodSpec(
                 restart_policy='Never',
+                node_selector={'competition': 'true'},
                 dns_policy='None' if self.settings.k3s_devbox_dns_nameservers else 'ClusterFirst',
                 dns_config=self._devbox_dns_config(),
+                image_pull_secrets=[
+                    client.V1LocalObjectReference(name=image_pull_secret_name)
+                ] if image_pull_secret_name else None,
                 containers=[
                     client.V1Container(
                         name='devbox',
-                        image=self.settings.k3s_devbox_image,
+                        image=image_ref,
                         command=['/bin/bash', '-lc', startup_script],
                         env=[
                             client.V1EnvVar(name='USERNAME', value=ssh_username),

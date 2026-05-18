@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class DevboxCreateRequest(BaseModel):
     app_name: str
     connection_password: str
+    image: str | None = None
 
 
 class DevboxCreateResponse(BaseModel):

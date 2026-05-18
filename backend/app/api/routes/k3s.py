@@ -32,8 +32,10 @@ async def create_devbox_container(
             k3s_service.create_devbox_container,
             current_session.emp_id,
             current_session.username,
+            current_session.email,
             payload.app_name,
             payload.connection_password,
+            payload.image,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
