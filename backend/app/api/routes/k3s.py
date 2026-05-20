@@ -36,6 +36,11 @@ async def create_devbox_container(
             payload.app_name,
             payload.connection_password,
             payload.image,
+            payload.needs_gpu,
+            payload.gpu_count,
+            payload.cpu_cores,
+            payload.memory_gb,
+            payload.shm_gb,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

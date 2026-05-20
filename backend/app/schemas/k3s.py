@@ -1,10 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DevboxCreateRequest(BaseModel):
     app_name: str
     connection_password: str
     image: str | None = None
+    needs_gpu: bool = False
+    gpu_count: int = Field(default=0, ge=0, le=2)
+    cpu_cores: int | None = Field(default=None, ge=1)
+    memory_gb: int | None = Field(default=None, ge=1)
+    shm_gb: int | None = Field(default=None, ge=1)
 
 
 class DevboxCreateResponse(BaseModel):
@@ -19,6 +24,8 @@ class DevboxCreateResponse(BaseModel):
     image: str
     cpu: str
     memory: str
+    gpu_count: int = 0
+    shm: str | None = None
     status: str
     created_at: str
 

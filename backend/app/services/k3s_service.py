@@ -134,6 +134,11 @@ class K3SService:
         app_name: str,
         connection_password: str,
         image: str | None = None,
+        needs_gpu: bool = False,
+        gpu_count: int = 0,
+        cpu_cores: int | None = None,
+        memory_gb: int | None = None,
+        shm_gb: int | None = None,
     ) -> dict[str, Any]:
         """在 emp_id namespace 下创建一个默认 devbox 容器 Pod。
 
@@ -150,6 +155,13 @@ class K3SService:
 
         namespace = self._ensure_user_namespace_or_raise(emp_id)
         image_ref, needs_private_pull_secret = self._resolve_devbox_image(image=image, email=email)
+        resources = self._resolve_devbox_resources(
+            needs_gpu=needs_gpu,
+            gpu_count=gpu_count,
+            cpu_cores=cpu_cores,
+            memory_gb=memory_gb,
+            shm_gb=shm_gb,
+        )
         image_pull_secret_name = None
         if needs_private_pull_secret:
             image_pull_secret_name = self._ensure_harbor_pull_secret(email, namespace)
@@ -163,6 +175,7 @@ class K3SService:
             ssh_username=username,
             image_ref=image_ref,
             image_pull_secret_name=image_pull_secret_name,
+            resources=resources,
         )
         try:
             self.container_repository.create_container_record(
@@ -213,8 +226,10 @@ class K3SService:
             'webssh_url': self.webssh_url(normalized_app_name, username),
             'native_ssh_command': self.native_ssh_command(normalized_app_name, username),
             'image': image_ref,
-            'cpu': self.settings.k3s_devbox_cpu,
-            'memory': self.settings.k3s_devbox_memory,
+            'cpu': resources['cpu'],
+            'memory': resources['memory'],
+            'gpu_count': resources['gpu_count'],
+            'shm': resources.get('shm'),
             'status': 'creating',
             'created_at': datetime.now(timezone.utc).isoformat(),
         }
@@ -266,6 +281,45 @@ class K3SService:
         return {
             'namespace': namespace,
             'containers': containers,
+        }
+
+    def _resolve_devbox_resources(
+        self,
+        *,
+        needs_gpu: bool,
+        gpu_count: int,
+        cpu_cores: int | None,
+        memory_gb: int | None,
+        shm_gb: int | None,
+    ) -> dict[str, Any]:
+        if not needs_gpu:
+            return {
+                'cpu': self.settings.k3s_devbox_cpu,
+                'memory': self.settings.k3s_devbox_memory,
+                'gpu_count': 0,
+                'shm': None,
+            }
+
+        if gpu_count < 1 or gpu_count > 2:
+            raise ValueError('GPU 数量必须为 1 到 2 张')
+        if cpu_cores is None or memory_gb is None or shm_gb is None:
+            raise ValueError('申请 GPU 开发沙盒时必须填写 CPU、内存和 /dev/shm')
+
+        max_cpu = 16 * gpu_count
+        max_memory = 32 * gpu_count
+        max_shm = 8 * gpu_count
+        if cpu_cores < 1 or cpu_cores > max_cpu:
+            raise ValueError(f'CPU 核数必须在 1 到 {max_cpu} 之间')
+        if memory_gb < 1 or memory_gb > max_memory:
+            raise ValueError(f'内存必须在 1GB 到 {max_memory}GB 之间')
+        if shm_gb < 1 or shm_gb > max_shm:
+            raise ValueError(f'/dev/shm 必须在 1GB 到 {max_shm}GB 之间')
+
+        return {
+            'cpu': str(cpu_cores),
+            'memory': f'{memory_gb}Gi',
+            'gpu_count': gpu_count,
+            'shm': f'{shm_gb}Gi',
         }
 
     def delete_user_container(self, emp_id: str | None, username: str, pod_name: str) -> dict[str, Any]:
@@ -591,13 +645,37 @@ class K3SService:
         ssh_username: str,
         image_ref: str,
         image_pull_secret_name: str | None = None,
+        resources: dict[str, Any] | None = None,
     ):
         from kubernetes import client
 
-        resource_value = {
+        resolved_resources = resources or {
             'cpu': self.settings.k3s_devbox_cpu,
             'memory': self.settings.k3s_devbox_memory,
+            'gpu_count': 0,
+            'shm': None,
         }
+        resource_value = {
+            'cpu': resolved_resources['cpu'],
+            'memory': resolved_resources['memory'],
+        }
+        gpu_count = int(resolved_resources.get('gpu_count') or 0)
+        if gpu_count > 0:
+            resource_value['nvidia.com/gpu'] = str(gpu_count)
+
+        shm_size = resolved_resources.get('shm')
+        volume_mounts = [
+            client.V1VolumeMount(name='dev-shm', mount_path='/dev/shm')
+        ] if shm_size else None
+        volumes = [
+            client.V1Volume(
+                name='dev-shm',
+                empty_dir=client.V1EmptyDirVolumeSource(
+                    medium='Memory',
+                    size_limit=shm_size,
+                ),
+            )
+        ] if shm_size else None
         startup_script = self._devbox_startup_script()
         return client.V1Pod(
             api_version='v1',
@@ -622,6 +700,7 @@ class K3SService:
             spec=client.V1PodSpec(
                 restart_policy='Never',
                 node_selector={'competition': 'true'},
+                affinity=self._devbox_affinity(needs_gpu=gpu_count > 0),
                 dns_policy='None' if self.settings.k3s_devbox_dns_nameservers else 'ClusterFirst',
                 dns_config=self._devbox_dns_config(),
                 image_pull_secrets=[
@@ -658,9 +737,51 @@ class K3SService:
                             requests=resource_value,
                             limits=resource_value,
                         ),
+                        volume_mounts=volume_mounts,
                     )
                 ],
+                volumes=volumes,
             ),
+        )
+
+    @staticmethod
+    def _devbox_affinity(*, needs_gpu: bool):
+        from kubernetes import client
+
+        if needs_gpu:
+            return client.V1Affinity(
+                node_affinity=client.V1NodeAffinity(
+                    required_during_scheduling_ignored_during_execution=client.V1NodeSelector(
+                        node_selector_terms=[
+                            client.V1NodeSelectorTerm(
+                                match_expressions=[
+                                    client.V1NodeSelectorRequirement(
+                                        key='nvidia.com/gpu.present',
+                                        operator='Exists',
+                                    )
+                                ]
+                            )
+                        ]
+                    )
+                )
+            )
+
+        return client.V1Affinity(
+            node_affinity=client.V1NodeAffinity(
+                preferred_during_scheduling_ignored_during_execution=[
+                    client.V1PreferredSchedulingTerm(
+                        weight=100,
+                        preference=client.V1NodeSelectorTerm(
+                            match_expressions=[
+                                client.V1NodeSelectorRequirement(
+                                    key='nvidia.com/gpu.present',
+                                    operator='DoesNotExist',
+                                )
+                            ]
+                        ),
+                    ),
+                ]
+            )
         )
 
     def _devbox_dns_config(self):

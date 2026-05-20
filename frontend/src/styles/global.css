@@ -1008,8 +1008,10 @@ button {
 }
 
 .modal-form input,
+.modal-form select,
 .modal-form textarea {
   width: 100%;
+  box-sizing: border-box;
   min-height: 48px;
   border-radius: 16px;
   border: 1px solid var(--line-strong);
@@ -1017,7 +1019,22 @@ button {
   color: var(--ink);
   outline: none;
   padding: 0 15px;
+  font: inherit;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.modal-form select {
+  height: 48px;
+  appearance: none;
+  padding-right: 42px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #64748b 50%),
+    linear-gradient(135deg, #64748b 50%, transparent 50%);
+  background-position:
+    calc(100% - 21px) 21px,
+    calc(100% - 15px) 21px;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
 .modal-form textarea {
@@ -1029,6 +1046,7 @@ button {
 }
 
 .modal-form input:focus,
+.modal-form select:focus,
 .modal-form textarea:focus {
   border-color: rgba(47, 125, 246, 0.62);
   box-shadow: 0 0 0 4px rgba(47, 125, 246, 0.12);
@@ -1059,6 +1077,56 @@ button {
 
 .dashboard-modal-card {
   width: min(100%, 560px);
+}
+
+.gpu-option {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px !important;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 125, 246, 0.16);
+  background: rgba(47, 125, 246, 0.06);
+}
+
+.gpu-option input {
+  width: 18px;
+  min-height: 18px;
+  margin-top: 3px;
+  accent-color: var(--brand);
+}
+
+.gpu-option strong {
+  display: block;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.gpu-option small {
+  display: block;
+  margin-top: 4px;
+}
+
+.gpu-resource-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(16, 32, 51, 0.07);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.gpu-resource-grid label {
+  grid-template-rows: auto 48px auto;
+  min-width: 0;
+}
+
+.gpu-resource-grid input,
+.gpu-resource-grid select {
+  height: 48px;
+  min-height: 48px;
 }
 
 .review-modal-card {
@@ -2351,6 +2419,10 @@ button {
 
   .modal-backdrop--dashboard .modal-card {
     max-height: calc(100vh - 28px);
+  }
+
+  .gpu-resource-grid {
+    grid-template-columns: 1fr;
   }
 
   .review-modal-card {

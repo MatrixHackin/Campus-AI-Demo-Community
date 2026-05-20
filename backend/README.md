@@ -247,6 +247,11 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
   `ssh_username`、`ssh_service_name` 和连接密码；其中
   `app_name` 使用唯一索引避免并发申请时重名。
 - 默认 devbox Pod 资源 request/limit 均为 2 核 CPU、4Gi 内存，镜像默认使用 `gpunion2.io/dev/devbox:latest`。
+- 所有开发沙盒 Pod 都通过 `nodeSelector` 强制调度到 `competition=true` 节点。
+- 用户创建开发沙盒时如勾选 GPU，会额外申请 `nvidia.com/gpu`，GPU 数量最多 2 张；CPU 上限为
+  `16 * GPU 数量`，内存上限为 `32Gi * GPU 数量`，`/dev/shm` 上限为 `8Gi * GPU 数量`。
+  GPU 开发沙盒会通过节点亲和性要求节点存在 `nvidia.com/gpu.present`；未勾选 GPU 的开发沙盒会保留默认资源，
+  并通过节点亲和性优先调度到不存在 `nvidia.com/gpu.present` 的节点。
 - 默认 devbox Pod 使用 `K3S_DEVBOX_DNS_NAMESERVERS` 配置固定 DNS，并设置 `dnsPolicy=None`，用于绕过
   当前 kube-dns 外部域名解析超时问题；如果该配置留空，则恢复 Kubernetes 默认 `ClusterFirst` DNS。
 - devbox 镜像需内置 `openssh-server`、`bash`、`useradd`、`chpasswd`、`ssh-keygen`、`sudo`。

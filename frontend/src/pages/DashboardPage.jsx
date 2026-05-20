@@ -24,6 +24,27 @@ const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const COMMIT_JOB_REFRESH_INTERVAL_MS = 5000
 const COMMIT_JOB_MAX_ATTEMPTS = 200
 const FALLBACK_DEVBOX_IMAGE = 'gpunion2.io/dev/devbox:latest'
+const GPU_DEFAULT_RESOURCES = {
+  gpuCount: '1',
+  cpuCores: '8',
+  memoryGb: '16',
+  shmGb: '4'
+}
+
+function gpuResourceLimits(gpuCountValue) {
+  const gpuCount = Number(gpuCountValue) || 1
+  return {
+    maxCpu: 16 * gpuCount,
+    maxMemory: 32 * gpuCount,
+    maxShm: 8 * gpuCount
+  }
+}
+
+function clampIntegerInput(value, min, max) {
+  const number = Number.parseInt(value, 10)
+  if (!Number.isFinite(number)) return ''
+  return String(Math.min(max, Math.max(min, number)))
+}
 
 function containerFromCreateResult(result) {
   return {
@@ -441,14 +462,17 @@ function ContainerApplyModal({
   appNameCheck,
   connectionPassword,
   error,
+  gpuConfig,
   selectedImage,
   submitting,
   onAppNameChange,
   onConnectionPasswordChange,
+  onGpuConfigChange,
   onClose,
   onSubmit
 }) {
   if (typeof document === 'undefined') return null
+  const gpuLimits = gpuResourceLimits(gpuConfig.gpuCount)
 
   return createPortal(
     <div className="modal-backdrop modal-backdrop--dashboard" role="presentation">
@@ -493,6 +517,87 @@ function ContainerApplyModal({
             />
           </label>
 
+          <label className="gpu-option">
+            <input
+              type="checkbox"
+              checked={gpuConfig.enabled}
+              onChange={(event) => onGpuConfigChange((prev) => ({ ...prev, enabled: event.target.checked }))}
+              disabled={submitting}
+            />
+            <span>
+              <strong>需要 GPU 来部署私有模型</strong>
+              <small>勾选后将申请 NVIDIA GPU，并按填写资源调度到可用 GPU 节点。</small>
+            </span>
+          </label>
+
+          {gpuConfig.enabled ? (
+            <div className="gpu-resource-grid">
+              <label>
+                <span>GPU 数量</span>
+                <select
+                  value={gpuConfig.gpuCount}
+                  onChange={(event) => {
+                    const gpuCount = event.target.value
+                    const limits = gpuResourceLimits(gpuCount)
+                    onGpuConfigChange((prev) => ({
+                      ...prev,
+                      gpuCount,
+                      cpuCores: clampIntegerInput(prev.cpuCores || GPU_DEFAULT_RESOURCES.cpuCores, 1, limits.maxCpu),
+                      memoryGb: clampIntegerInput(prev.memoryGb || GPU_DEFAULT_RESOURCES.memoryGb, 1, limits.maxMemory),
+                      shmGb: clampIntegerInput(prev.shmGb || GPU_DEFAULT_RESOURCES.shmGb, 1, limits.maxShm)
+                    }))
+                  }}
+                  disabled={submitting}
+                >
+                  <option value="1">1 张</option>
+                  <option value="2">2 张</option>
+                </select>
+              </label>
+
+              <label>
+                <span>CPU 核数</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={gpuLimits.maxCpu}
+                  value={gpuConfig.cpuCores}
+                  onChange={(event) => onGpuConfigChange((prev) => ({ ...prev, cpuCores: event.target.value }))}
+                  onBlur={(event) => onGpuConfigChange((prev) => ({ ...prev, cpuCores: clampIntegerInput(event.target.value, 1, gpuLimits.maxCpu) }))}
+                  disabled={submitting}
+                />
+                <small>最多 {gpuLimits.maxCpu} 核</small>
+              </label>
+
+              <label>
+                <span>内存 GB</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={gpuLimits.maxMemory}
+                  value={gpuConfig.memoryGb}
+                  onChange={(event) => onGpuConfigChange((prev) => ({ ...prev, memoryGb: event.target.value }))}
+                  onBlur={(event) => onGpuConfigChange((prev) => ({ ...prev, memoryGb: clampIntegerInput(event.target.value, 1, gpuLimits.maxMemory) }))}
+                  disabled={submitting}
+                />
+                <small>最多 {gpuLimits.maxMemory} GB</small>
+              </label>
+
+              <label>
+                <span>/dev/shm GB</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={gpuLimits.maxShm}
+                  value={gpuConfig.shmGb}
+                  onChange={(event) => onGpuConfigChange((prev) => ({ ...prev, shmGb: event.target.value }))}
+                  onBlur={(event) => onGpuConfigChange((prev) => ({ ...prev, shmGb: clampIntegerInput(event.target.value, 1, gpuLimits.maxShm) }))}
+                  disabled={submitting}
+                />
+                <small>最多 {gpuLimits.maxShm} GB</small>
+              </label>
+            </div>
+          ) : null}
+
           {appNameCheck?.available ? (
             <div className="feedback feedback--success">应用名称可用：{appNameCheck.url}</div>
           ) : null}
@@ -527,6 +632,7 @@ export default function DashboardPage() {
   const [isApplyModalOpen, setIsApplyModalOpen] = useState(false)
   const [appName, setAppName] = useState('')
   const [connectionPassword, setConnectionPassword] = useState('')
+  const [gpuConfig, setGpuConfig] = useState({ enabled: false, ...GPU_DEFAULT_RESOURCES })
   const [appNameCheck, setAppNameCheck] = useState(null)
   const [applyFormError, setApplyFormError] = useState('')
   const [publishTarget, setPublishTarget] = useState(null)
@@ -621,6 +727,7 @@ export default function DashboardPage() {
   const resetApplyForm = useCallback(() => {
     setAppName('')
     setConnectionPassword('')
+    setGpuConfig({ enabled: false, ...GPU_DEFAULT_RESOURCES })
     setAppNameCheck(null)
     setApplyFormError('')
   }, [])
@@ -654,6 +761,29 @@ export default function DashboardPage() {
       setApplyFormError('连接密码至少需要 6 位')
       return
     }
+    const gpuCount = Number.parseInt(gpuConfig.gpuCount, 10)
+    const cpuCores = Number.parseInt(gpuConfig.cpuCores, 10)
+    const memoryGb = Number.parseInt(gpuConfig.memoryGb, 10)
+    const shmGb = Number.parseInt(gpuConfig.shmGb, 10)
+    if (gpuConfig.enabled) {
+      if (![1, 2].includes(gpuCount)) {
+        setApplyFormError('GPU 数量必须为 1 到 2 张')
+        return
+      }
+      const limits = gpuResourceLimits(gpuCount)
+      if (!Number.isInteger(cpuCores) || cpuCores < 1 || cpuCores > limits.maxCpu) {
+        setApplyFormError(`CPU 核数必须在 1 到 ${limits.maxCpu} 之间`)
+        return
+      }
+      if (!Number.isInteger(memoryGb) || memoryGb < 1 || memoryGb > limits.maxMemory) {
+        setApplyFormError(`内存必须在 1GB 到 ${limits.maxMemory}GB 之间`)
+        return
+      }
+      if (!Number.isInteger(shmGb) || shmGb < 1 || shmGb > limits.maxShm) {
+        setApplyFormError(`/dev/shm 必须在 1GB 到 ${limits.maxShm}GB 之间`)
+        return
+      }
+    }
     const imageForContainer = selectedImage || defaultRepositoryImage(harborInfo)
 
     setCreatingContainer(true)
@@ -669,7 +799,12 @@ export default function DashboardPage() {
       const createdContainer = await createDevboxContainer({
         app_name: normalizedAppName,
         connection_password: connectionPassword,
-        image: imageForContainer
+        image: imageForContainer,
+        needs_gpu: gpuConfig.enabled,
+        gpu_count: gpuConfig.enabled ? gpuCount : 0,
+        cpu_cores: gpuConfig.enabled ? cpuCores : null,
+        memory_gb: gpuConfig.enabled ? memoryGb : null,
+        shm_gb: gpuConfig.enabled ? shmGb : null
       })
       setContainersInfo((prev) => ({
         namespace: createdContainer.namespace || prev?.namespace,
@@ -689,7 +824,7 @@ export default function DashboardPage() {
     } finally {
       setCreatingContainer(false)
     }
-  }, [appName, connectionPassword, harborInfo, pollContainersUntil, resetApplyForm, selectedImage])
+  }, [appName, connectionPassword, gpuConfig, harborInfo, pollContainersUntil, resetApplyForm, selectedImage])
 
   const handleDeleteContainer = useCallback(async (container) => {
     if (!container?.name) return
@@ -1010,10 +1145,12 @@ export default function DashboardPage() {
           appNameCheck={appNameCheck}
           connectionPassword={connectionPassword}
           error={applyFormError}
+          gpuConfig={gpuConfig}
           selectedImage={selectedImage}
           submitting={creatingContainer}
           onAppNameChange={handleAppNameChange}
           onConnectionPasswordChange={setConnectionPassword}
+          onGpuConfigChange={setGpuConfig}
           onClose={handleCloseApplyModal}
           onSubmit={handleCreateContainer}
         />
