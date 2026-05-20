@@ -1,16 +1,11 @@
+import { useMemo } from 'react'
 import AppShell from '../components/AppShell'
-import MarkdownRenderer from '../components/MarkdownRenderer'
+import MarkdownRenderer, { extractMarkdownHeadings } from '../components/MarkdownRenderer'
 import manualMarkdown from '../content/developer-manual.md?raw'
 
-const manualNavItems = [
-  { href: '#平台应用访问路径规范', label: '应用访问路径' },
-  { href: '#利用ide开始-vibecoding', label: 'IDE：VS Code / Cursor' },
-  { href: '#利用cli开始-vibecoding', label: 'CLI：WebSSH / SSH' },
-  { href: '#安全规范', label: '安全规范' },
-  { href: '#排障清单', label: '排障清单' }
-]
-
 export default function DeveloperManualPage() {
+  const manualNavItems = useMemo(() => extractMarkdownHeadings(manualMarkdown), [])
+
   return (
     <AppShell>
       <div className="manual-layout">
@@ -18,8 +13,8 @@ export default function DeveloperManualPage() {
           <strong>目录</strong>
           <nav>
             {manualNavItems.map((item) => (
-              <a key={item.href} href={item.href}>
-                {item.label}
+              <a className={`manual-toc__link manual-toc__link--level-${item.level}`} key={item.id} href={`#${item.id}`}>
+                {item.text}
               </a>
             ))}
           </nav>

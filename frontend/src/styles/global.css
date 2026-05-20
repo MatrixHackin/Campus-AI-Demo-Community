@@ -2065,13 +2065,37 @@ button {
 
 .manual-toc a {
   display: block;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 14px;
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   font-weight: 680;
   line-height: 1.35;
   transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.manual-toc a.manual-toc__link--level-1 {
+  color: var(--ink);
+  font-weight: 820;
+}
+
+.manual-toc a.manual-toc__link--level-2 {
+  padding-left: 14px;
+  font-weight: 760;
+}
+
+.manual-toc a.manual-toc__link--level-3 {
+  padding-left: 26px;
+  font-size: 0.86rem;
+}
+
+.manual-toc a.manual-toc__link--level-4,
+.manual-toc a.manual-toc__link--level-5,
+.manual-toc a.manual-toc__link--level-6 {
+  padding-left: 38px;
+  color: #708196;
+  font-size: 0.82rem;
+  font-weight: 620;
 }
 
 .manual-toc a:hover {
@@ -2108,7 +2132,10 @@ button {
 
 .markdown-body h1,
 .markdown-body h2,
-.markdown-body h3 {
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
   scroll-margin-top: 28px;
   color: var(--ink);
   letter-spacing: -0.035em;
@@ -2127,6 +2154,19 @@ button {
 .markdown-body h3 {
   margin-top: 6px;
   font-size: 1.25rem;
+}
+
+.markdown-body h4 {
+  margin-top: 4px;
+  color: #28405f;
+  font-size: 1.08rem;
+}
+
+.markdown-body h5,
+.markdown-body h6 {
+  margin-top: 2px;
+  color: #405269;
+  font-size: 0.98rem;
 }
 
 .markdown-body p,

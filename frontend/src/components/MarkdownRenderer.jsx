@@ -1,12 +1,31 @@
 import { useMemo } from 'react'
 
-function slugify(text) {
+export function slugify(text) {
   return text
     .trim()
     .toLowerCase()
     .replace(/[`*_]/g, '')
     .replace(/\s+/g, '-')
     .replace(/[^\w\u4e00-\u9fa5-]/g, '')
+}
+
+function plainText(text) {
+  return text
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .trim()
+}
+
+function createSlugger() {
+  const counts = new Map()
+
+  return (text) => {
+    const base = slugify(plainText(text)) || 'section'
+    const count = counts.get(base) || 0
+    counts.set(base, count + 1)
+    return count === 0 ? base : `${base}-${count + 1}`
+  }
 }
 
 function InlineMarkdown({ text }) {
@@ -58,6 +77,7 @@ function parseMarkdown(markdown) {
   const blocks = []
   const paragraph = []
   const lines = markdown.replace(/\r\n/g, '\n').split('\n')
+  const makeSlug = createSlugger()
   let codeFence = null
   let list = null
   let table = null
@@ -122,12 +142,17 @@ function parseMarkdown(markdown) {
       flushTable()
     }
 
-    const headingMatch = line.match(/^(#{1,3})\s+(.+)$/)
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/)
     if (headingMatch) {
       flushParagraph(blocks, paragraph)
       flushList()
       flushTable()
-      blocks.push({ type: 'heading', level: headingMatch[1].length, text: headingMatch[2] })
+      blocks.push({
+        type: 'heading',
+        level: headingMatch[1].length,
+        text: headingMatch[2],
+        id: makeSlug(headingMatch[2])
+      })
       return
     }
 
@@ -169,6 +194,33 @@ function parseMarkdown(markdown) {
   return blocks
 }
 
+export function extractMarkdownHeadings(markdown) {
+  const makeSlug = createSlugger()
+  const headings = []
+  let inCodeFence = false
+
+  markdown.replace(/\r\n/g, '\n').split('\n').forEach((line) => {
+    if (line.startsWith('```')) {
+      inCodeFence = !inCodeFence
+      return
+    }
+
+    if (inCodeFence) return
+
+    const headingMatch = line.match(/^(#{1,6})\s+(.+)$/)
+    if (!headingMatch) return
+
+    const text = plainText(headingMatch[2])
+    headings.push({
+      id: makeSlug(headingMatch[2]),
+      level: headingMatch[1].length,
+      text
+    })
+  })
+
+  return headings
+}
+
 export default function MarkdownRenderer({ markdown }) {
   const blocks = useMemo(() => parseMarkdown(markdown), [markdown])
 
@@ -178,7 +230,7 @@ export default function MarkdownRenderer({ markdown }) {
         if (block.type === 'heading') {
           const HeadingTag = `h${block.level}`
           return (
-            <HeadingTag id={slugify(block.text)} key={index}>
+            <HeadingTag id={block.id} key={index}>
               <InlineMarkdown text={block.text} />
             </HeadingTag>
           )

@@ -112,14 +112,14 @@ function formatDateTime(value) {
 }
 
 function imageShortName(repo) {
-  return repo?.name || '未命名镜像'
+  return repo?.name || '未命名模板'
 }
 
 function imageNameFromRef(image) {
-  if (!image) return '镜像'
+  if (!image) return '开发环境模板'
   const withoutDigest = image.split('@')[0]
   const lastPart = withoutDigest.split('/').pop() || withoutDigest
-  return lastPart.split(':')[0] || '镜像'
+  return lastPart.split(':')[0] || '开发环境模板'
 }
 
 function allRepositoryImages(info) {
@@ -216,7 +216,7 @@ function ImageList({
       {loading ? <div className="muted-card">正在加载…</div> : null}
       {!loading && message ? <div className="muted-card">{message}</div> : null}
       {!loading && !message && project?.exists && repos.length === 0 ? (
-        <div className="muted-card">暂无镜像。</div>
+        <div className="muted-card">暂无模板。</div>
       ) : null}
 
       {!loading && project?.exists ? (
@@ -259,15 +259,15 @@ function ContainerList({
   onUnpublish
 }) {
   if (loading) {
-    return <div className="muted-card">正在加载容器…</div>
+    return <div className="muted-card">正在加载开发沙盒…</div>
   }
 
   if (!containers.length) {
-    return <div className="muted-card">暂无容器。</div>
+    return <div className="muted-card">暂无开发沙盒。</div>
   }
 
   return (
-    <div className="container-list" aria-label="我的容器">
+    <div className="container-list" aria-label="我的开发沙盒">
       {containers.map((container) => {
         const imageName = imageNameFromRef(container.image)
         const displayName = container.app_name || container.name
@@ -305,11 +305,11 @@ function ContainerList({
                 <button
                   className="container-action-button"
                   type="button"
-                  title={saveState?.message || '保存当前容器为个人镜像'}
+                  title={saveState?.message || '保存当前开发沙盒为我的开发环境模板'}
                   onClick={() => onSaveContainer(container)}
                   disabled={isSaving || container.status !== 'Running'}
                 >
-                  {isSaving ? '保存中…' : '保存容器'}
+                  {isSaving ? '保存中…' : '保存为我的模板'}
                 </button>
                 <button
                   className="container-delete-button"
@@ -317,7 +317,7 @@ function ContainerList({
                   onClick={() => onDelete(container)}
                   disabled={deletingPodName === container.name || container.status === 'Terminating'}
                 >
-                  {deletingPodName === container.name ? '删除中…' : '删除'}
+                  {deletingPodName === container.name ? '删除中…' : '删除沙盒'}
                 </button>
               </div>
               <div className="container-row__action-line container-row__action-line--connection">
@@ -455,15 +455,15 @@ function ContainerApplyModal({
       <div className="modal-card dashboard-modal-card" role="dialog" aria-modal="true" aria-labelledby="container-apply-title">
         <div className="modal-card__header">
           <div>
-            <h2 id="container-apply-title">申请容器</h2>
+            <h2 id="container-apply-title">创建开发沙盒</h2>
           </div>
         </div>
 
         <form className="modal-form" onSubmit={onSubmit}>
           <label>
-            <span>使用镜像</span>
+            <span>使用开发环境模板</span>
             <input type="text" value={imageNameFromRef(selectedImage)} title={selectedImage} disabled />
-            <small>容器将使用当前选中的镜像，默认选中公有开发镜像。</small>
+            <small>开发沙盒将使用当前选中的开发环境模板，默认选中公有开发环境模板。</small>
           </label>
 
           <label>
@@ -503,7 +503,7 @@ function ContainerApplyModal({
               取消
             </button>
             <button className="btn btn--primary" type="submit" disabled={submitting}>
-              {submitting ? '申请中…' : '确认申请'}
+              {submitting ? '创建中…' : '确认创建'}
             </button>
           </div>
         </form>
@@ -693,7 +693,7 @@ export default function DashboardPage() {
 
   const handleDeleteContainer = useCallback(async (container) => {
     if (!container?.name) return
-    const confirmed = window.confirm(`确定删除容器 ${container.name} 及其配套访问资源吗？`)
+    const confirmed = window.confirm(`确定删除沙盒 ${container.name} 及其配套访问资源吗？`)
     if (!confirmed) return
 
     let previousContainersInfo = null
@@ -777,11 +777,11 @@ export default function DashboardPage() {
         updateSavingJob(podName, status)
         if (status.status === 'Succeeded') {
           loadHarborImages()
-          window.alert(`镜像保存成功：${status.image || ''}`)
+          window.alert(`模板保存成功：${status.image || ''}`)
           return
         }
         if (['Failed', 'NotFound', 'Error'].includes(status.status)) {
-          setContainerError(status.message || '镜像保存失败')
+          setContainerError(status.message || '模板保存失败')
           return
         }
         if (attempt < COMMIT_JOB_MAX_ATTEMPTS) {
@@ -789,9 +789,9 @@ export default function DashboardPage() {
         } else {
           updateSavingJob(podName, {
             status: 'Error',
-            message: '保存任务查询超时，请稍后刷新镜像仓库确认结果'
+            message: '保存任务查询超时，请稍后刷新模板仓库确认结果'
           })
-          setContainerError('保存任务查询超时，请稍后刷新镜像仓库确认结果')
+          setContainerError('保存任务查询超时，请稍后刷新模板仓库确认结果')
         }
       } catch (err) {
         updateSavingJob(podName, {
@@ -805,12 +805,12 @@ export default function DashboardPage() {
 
   const handleSaveContainer = useCallback(async (container) => {
     if (!container?.name) return
-    const imageName = window.prompt('请输入要保存的镜像名称，例如 my-backup-v1：')
+    const imageName = window.prompt('请输入要保存的开发环境模板名称，例如 my-backup-v1：')
     if (!imageName) return
 
     const normalizedImageName = imageName.trim().toLowerCase()
     if (!COMMIT_IMAGE_NAME_PATTERN.test(normalizedImageName) || normalizedImageName.length > 80) {
-      setContainerError('镜像名称最多 80 个字符，只能包含小写字母、数字、点、下划线和中划线，且必须以字母或数字开头')
+      setContainerError('开发环境模板名称最多 80 个字符，只能包含小写字母、数字、点、下划线和中划线，且必须以字母或数字开头')
       return
     }
 
@@ -918,10 +918,10 @@ export default function DashboardPage() {
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
-    ? harborInfo?.message || '镜像仓库暂不可用'
+    ? harborInfo?.message || '模板仓库暂不可用'
     : harborInfo?.private_message
   const publicMessage = !harborConfigured
-    ? harborInfo?.message || '镜像仓库暂不可用'
+    ? harborInfo?.message || '模板仓库暂不可用'
     : harborInfo?.public_message
   const visibleContainers = (containersInfo?.containers || []).filter(
     (container) => container.status !== 'Terminating' && !hiddenDeletingPods.includes(container.name)
@@ -932,14 +932,14 @@ export default function DashboardPage() {
       <div className="dashboard-layout">
         <section className="content-panel container-request-panel" aria-labelledby="container-request-title">
           <div className="dashboard-panel-heading">
-            <h1 id="container-request-title">容器申请</h1>
+            <h1 id="container-request-title">开发沙盒</h1>
             <button
               className="btn btn--primary"
               type="button"
               onClick={handleOpenApplyModal}
               disabled={creatingContainer}
             >
-              {creatingContainer ? '申请中…' : '申请容器'}
+              {creatingContainer ? '创建中…' : '创建开发沙盒'}
             </button>
           </div>
 
@@ -965,10 +965,10 @@ export default function DashboardPage() {
           ) : null}
         </section>
 
-        <aside className="image-repository-panel" aria-label="镜像仓库">
+        <aside className="image-repository-panel" aria-label="模板仓库">
           <div className="image-repository-panel__header">
             <div>
-              <h1>镜像仓库</h1>
+              <h1>模板仓库</h1>
             </div>
             <button className="btn btn--primary" type="button" onClick={loadHarborImages} disabled={loading}>
               {loading ? '刷新中' : '刷新'}
@@ -980,7 +980,7 @@ export default function DashboardPage() {
           {!error ? (
             <>
               <ImageList
-                title="我的镜像"
+                title="我的模板"
                 project={harborInfo?.private_project}
                 message={privateMessage}
                 loading={loading}
@@ -990,7 +990,7 @@ export default function DashboardPage() {
                 onSelectImage={setSelectedImage}
               />
               <ImageList
-                title="公有镜像"
+                title="公有模板"
                 project={harborInfo?.public_project_info}
                 message={publicMessage}
                 loading={loading}
