@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import BrandLogo from '../components/BrandLogo'
 import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
@@ -31,7 +32,7 @@ export default function LoginPage() {
     <div className="site-shell auth-shell">
       <header className="site-header">
         <Link className="site-brand" to="/" aria-label="Campus AI Community 首页">
-          <span className="site-brand__mark">C</span>
+          <BrandLogo />
           <span>Campus AI Community</span>
         </Link>
       </header>

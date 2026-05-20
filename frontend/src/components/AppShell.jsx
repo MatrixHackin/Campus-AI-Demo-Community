@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import BrandLogo from './BrandLogo'
 
 const navItems = [
   { to: '/dashboard', label: '工作台' },
@@ -16,7 +17,7 @@ export default function AppShell({ children }) {
     <div className="site-shell app-shell">
       <header className="app-nav">
         <div className="site-brand" aria-label="Campus AI Community">
-          <span className="site-brand__mark">C</span>
+          <BrandLogo />
           <span>Campus AI Community</span>
         </div>
 

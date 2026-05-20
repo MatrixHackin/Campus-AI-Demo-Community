@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom'
+import BrandLogo from '../components/BrandLogo'
 
 export default function LandingPage() {
   return (
     <div className="site-shell landing-shell">
       <header className="site-header">
         <Link className="site-brand" to="/" aria-label="Campus AI Community 首页">
-          <span className="site-brand__mark">C</span>
+          <BrandLogo />
           <span>Campus AI Community</span>
         </Link>
         <nav className="site-nav" aria-label="主导航">

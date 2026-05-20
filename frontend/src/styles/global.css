@@ -102,9 +102,19 @@ button {
   letter-spacing: -0.01em;
 }
 
+.site-brand__logo,
 .site-brand__mark {
   width: 38px;
   height: 38px;
+}
+
+.site-brand__logo {
+  display: block;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.site-brand__mark {
   display: grid;
   place-items: center;
   border-radius: 13px;
