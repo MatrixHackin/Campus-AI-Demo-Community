@@ -167,6 +167,9 @@ class K3SService:
             image_pull_secret_name = self._ensure_harbor_pull_secret(email, namespace)
         pod_name = f'campus-devbox-{uuid.uuid4().hex[:8]}'
         ssh_service_name = f'{normalized_app_name}-ssh-svc'
+        user_workspace_pvc_name = None
+        if self.settings.k3s_user_workspace_enabled:
+            user_workspace_pvc_name = self._ensure_user_workspace_pvc(namespace)
         pod = self._devbox_pod_body(
             pod_name=pod_name,
             namespace=namespace,
@@ -176,6 +179,7 @@ class K3SService:
             image_ref=image_ref,
             image_pull_secret_name=image_pull_secret_name,
             resources=resources,
+            user_workspace_pvc_name=user_workspace_pvc_name,
         )
         try:
             self.container_repository.create_container_record(
@@ -646,6 +650,7 @@ class K3SService:
         image_ref: str,
         image_pull_secret_name: str | None = None,
         resources: dict[str, Any] | None = None,
+        user_workspace_pvc_name: str | None = None,
     ):
         from kubernetes import client
 
@@ -664,18 +669,34 @@ class K3SService:
             resource_value['nvidia.com/gpu'] = str(gpu_count)
 
         shm_size = resolved_resources.get('shm')
-        volume_mounts = [
-            client.V1VolumeMount(name='dev-shm', mount_path='/dev/shm')
-        ] if shm_size else None
-        volumes = [
-            client.V1Volume(
-                name='dev-shm',
-                empty_dir=client.V1EmptyDirVolumeSource(
-                    medium='Memory',
-                    size_limit=shm_size,
-                ),
+        volume_mounts = []
+        volumes = []
+        if shm_size:
+            volume_mounts.append(client.V1VolumeMount(name='dev-shm', mount_path='/dev/shm'))
+            volumes.append(
+                client.V1Volume(
+                    name='dev-shm',
+                    empty_dir=client.V1EmptyDirVolumeSource(
+                        medium='Memory',
+                        size_limit=shm_size,
+                    ),
+                )
             )
-        ] if shm_size else None
+        if user_workspace_pvc_name:
+            volume_mounts.append(
+                client.V1VolumeMount(
+                    name='user-workspace',
+                    mount_path=self._user_workspace_mount_path(ssh_username),
+                )
+            )
+            volumes.append(
+                client.V1Volume(
+                    name='user-workspace',
+                    persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                        claim_name=user_workspace_pvc_name,
+                    ),
+                )
+            )
         startup_script = self._devbox_startup_script()
         return client.V1Pod(
             api_version='v1',
@@ -737,12 +758,76 @@ class K3SService:
                             requests=resource_value,
                             limits=resource_value,
                         ),
-                        volume_mounts=volume_mounts,
+                        volume_mounts=volume_mounts or None,
                     )
                 ],
-                volumes=volumes,
+                volumes=volumes or None,
             ),
         )
+
+    def _ensure_user_workspace_pvc(self, namespace: str) -> str:
+        """确保用户 namespace 下存在一个用户级 Longhorn RWX 工作区 PVC。"""
+        pvc_name = self.settings.k3s_user_workspace_pvc_name.strip() or 'user-workspace'
+        if not K8S_DNS_LABEL_PATTERN.fullmatch(pvc_name):
+            raise RuntimeError(f'用户持久存储 PVC 名称不合法：{pvc_name}')
+
+        api_exception = self._api_exception_class()
+        try:
+            self._core().read_namespaced_persistent_volume_claim(name=pvc_name, namespace=namespace)
+            return pvc_name
+        except api_exception as exc:
+            if exc.status != 404:
+                logger.warning('查询用户持久存储 PVC %s/%s 失败：%s', namespace, pvc_name, exc)
+                raise RuntimeError(f'查询用户持久存储失败：{exc.reason or exc.status}') from exc
+
+        try:
+            self._core().create_namespaced_persistent_volume_claim(
+                namespace=namespace,
+                body=self._user_workspace_pvc_body(pvc_name),
+            )
+            logger.info('用户持久存储 PVC %s/%s 创建成功', namespace, pvc_name)
+            return pvc_name
+        except api_exception as exc:
+            if exc.status == 409:
+                return pvc_name
+            logger.warning('创建用户持久存储 PVC %s/%s 失败：%s', namespace, pvc_name, exc)
+            raise RuntimeError(f'创建用户持久存储失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('创建用户持久存储 PVC %s/%s 异常：%s', namespace, pvc_name, exc)
+            raise RuntimeError(f'创建用户持久存储失败：{exc}') from exc
+
+    def _user_workspace_pvc_body(self, pvc_name: str):
+        from kubernetes import client
+
+        return client.V1PersistentVolumeClaim(
+            api_version='v1',
+            kind='PersistentVolumeClaim',
+            metadata=client.V1ObjectMeta(
+                name=pvc_name,
+                labels={
+                    'app.kubernetes.io/managed-by': 'campus-ai',
+                    'campus-ai/user-workspace': 'true',
+                },
+            ),
+            spec=client.V1PersistentVolumeClaimSpec(
+                access_modes=[self.settings.k3s_user_workspace_access_mode],
+                storage_class_name=self.settings.k3s_user_workspace_storage_class,
+                resources=client.V1VolumeResourceRequirements(
+                    requests={
+                        'storage': self.settings.k3s_user_workspace_size,
+                    },
+                ),
+            ),
+        )
+
+    def _user_workspace_mount_path(self, ssh_username: str) -> str:
+        del ssh_username
+        mount_path = self.settings.k3s_user_workspace_mount_path.strip() or '/mydata'
+        if not mount_path.startswith('/') or mount_path == '/':
+            raise RuntimeError(f'用户持久存储挂载路径不合法：{mount_path}')
+        if '"' in mount_path or '$' in mount_path or '`' in mount_path:
+            raise RuntimeError(f'用户持久存储挂载路径不合法：{mount_path}')
+        return mount_path
 
     @staticmethod
     def _devbox_affinity(*, needs_gpu: bool):
@@ -814,6 +899,8 @@ class K3SService:
             'fi; '
             'mkdir -p "/home/$USERNAME"; '
             'chown "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true; '
+            f'mkdir -p {shlex.quote(self._user_workspace_mount_path(""))}; '
+            f'chown "$USERNAME:$USERNAME" {shlex.quote(self._user_workspace_mount_path(""))} 2>/dev/null || true; '
             'usermod -aG sudo "$USERNAME" 2>/dev/null || true; '
             'ssh-keygen -A; '
             'mkdir -p /run/sshd /var/run/sshd; '

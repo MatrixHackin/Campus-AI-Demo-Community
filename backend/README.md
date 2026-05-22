@@ -139,8 +139,8 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 ## K3s Namespace 与开发容器
 
-当前已对接 K3s 的 namespace 创建、默认 devbox Pod 申请、容器删除，以及基于 Traefik Ingress 的
-HTTP 应用暴露能力；暂不实现 PVC 等其他服务。
+当前已对接 K3s 的 namespace 创建、用户级 Longhorn 持久存储、默认 devbox Pod 申请、容器删除，
+以及基于 Traefik Ingress 的 HTTP 应用暴露能力。
 
 后端不会在 SSO 登录/注册时创建 namespace。用户在工作台点击“申请容器”时，后端才会使用当前
 登录用户的 `emp_id` 确保存在对应 namespace：
@@ -179,6 +179,12 @@ K3S_DEVBOX_DNS_NAMESERVERS=10.90.63.2,10.90.63.3,8.8.8.8
 K3S_APPS_HOST=gpunion.hkust-gz.edu.cn
 K3S_APPS_PATH_PREFIX=/apps
 K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
+K3S_USER_WORKSPACE_ENABLED=true
+K3S_USER_WORKSPACE_PVC_NAME=user-workspace
+K3S_USER_WORKSPACE_STORAGE_CLASS=longhorn
+K3S_USER_WORKSPACE_SIZE=64Gi
+K3S_USER_WORKSPACE_ACCESS_MODE=ReadWriteMany
+K3S_USER_WORKSPACE_MOUNT_PATH=/mydata
 SSH_GATEWAY_ENABLED=true
 SSH_GATEWAY_HOST=0.0.0.0
 SSH_GATEWAY_PORT=2222
@@ -243,6 +249,9 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - 申请容器时会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod、一个
   Web ClusterIP Service、一个 SSH ClusterIP Service、一个 Traefik Ingress，并将容器内 3000 端口应用暴露为
   `https://gpunion.hkust-gz.edu.cn/apps/{app_name}`。
+- 用户首次申请开发沙盒时，后端会在该用户 namespace 下懒创建一个用户级 Longhorn PVC
+  `user-workspace`，默认 `64Gi / ReadWriteMany / storageClassName=longhorn`；后续同一用户的开发沙盒
+  会复用该 PVC，并挂载到容器内 `/mydata`。删除单个沙盒不会删除该用户级 PVC。
 - 申请成功时会向 `containers` 表写入 `pod_name`、`app_name`、`namespace`、`username`、
   `ssh_username`、`ssh_service_name` 和连接密码；其中
   `app_name` 使用唯一索引避免并发申请时重名。

@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
     k3s_apps_path_prefix: str = '/apps'
     k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'
+    k3s_user_workspace_enabled: bool = True
+    k3s_user_workspace_pvc_name: str = 'user-workspace'
+    k3s_user_workspace_storage_class: str = 'longhorn'
+    k3s_user_workspace_size: str = '64Gi'
+    k3s_user_workspace_access_mode: str = 'ReadWriteMany'
+    k3s_user_workspace_mount_path: str = '/mydata'
 
     ssh_gateway_enabled: bool = True
     ssh_gateway_host: str = '0.0.0.0'
