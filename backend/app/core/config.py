@@ -90,6 +90,26 @@ class Settings(BaseSettings):
     k3s_user_workspace_size: str = '64Gi'
     k3s_user_workspace_access_mode: str = 'ReadWriteMany'
     k3s_user_workspace_mount_path: str = '/mydata'
+    k3s_network_policy_enabled: bool = True
+    k3s_network_policy_public_web_egress_enabled: bool = True
+    k3s_network_policy_public_web_except_cidrs: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: [
+            '10.0.0.0/8',
+            '172.16.0.0/12',
+            '192.168.0.0/16',
+            '100.64.0.0/10',
+            '169.254.0.0/16',
+        ]
+    )
+    k3s_network_policy_traefik_namespace: str = 'kube-system'
+    k3s_network_policy_traefik_pod_labels: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['app.kubernetes.io/name=traefik']
+    )
+    k3s_network_policy_coredns_namespace: str = 'kube-system'
+    k3s_network_policy_coredns_pod_labels: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['k8s-app=kube-dns']
+    )
+    k3s_network_policy_internal_allow_rules: Annotated[List[str], NoDecode] = Field(default_factory=list)
 
     ssh_gateway_enabled: bool = True
     ssh_gateway_host: str = '0.0.0.0'
@@ -142,6 +162,19 @@ class Settings(BaseSettings):
     @field_validator('k3s_devbox_dns_nameservers', mode='before')
     @classmethod
     def parse_k3s_devbox_dns_nameservers(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(',') if item.strip()]
+        return value
+
+    @field_validator(
+        'k3s_network_policy_public_web_except_cidrs',
+        'k3s_network_policy_traefik_pod_labels',
+        'k3s_network_policy_coredns_pod_labels',
+        'k3s_network_policy_internal_allow_rules',
+        mode='before',
+    )
+    @classmethod
+    def parse_k3s_network_policy_lists(cls, value):
         if isinstance(value, str):
             return [item.strip() for item in value.split(',') if item.strip()]
         return value

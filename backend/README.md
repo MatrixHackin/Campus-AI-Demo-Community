@@ -185,6 +185,14 @@ K3S_USER_WORKSPACE_STORAGE_CLASS=longhorn
 K3S_USER_WORKSPACE_SIZE=64Gi
 K3S_USER_WORKSPACE_ACCESS_MODE=ReadWriteMany
 K3S_USER_WORKSPACE_MOUNT_PATH=/mydata
+K3S_NETWORK_POLICY_ENABLED=true
+K3S_NETWORK_POLICY_PUBLIC_WEB_EGRESS_ENABLED=true
+K3S_NETWORK_POLICY_PUBLIC_WEB_EXCEPT_CIDRS=10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16
+K3S_NETWORK_POLICY_TRAEFIK_NAMESPACE=kube-system
+K3S_NETWORK_POLICY_TRAEFIK_POD_LABELS=app.kubernetes.io/name=traefik
+K3S_NETWORK_POLICY_COREDNS_NAMESPACE=kube-system
+K3S_NETWORK_POLICY_COREDNS_POD_LABELS=k8s-app=kube-dns
+K3S_NETWORK_POLICY_INTERNAL_ALLOW_RULES=
 SSH_GATEWAY_ENABLED=true
 SSH_GATEWAY_HOST=0.0.0.0
 SSH_GATEWAY_PORT=2222
@@ -252,6 +260,14 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - 用户首次申请开发沙盒时，后端会在该用户 namespace 下懒创建一个用户级 Longhorn PVC
   `user-workspace`，默认 `64Gi / ReadWriteMany / storageClassName=longhorn`；后续同一用户的开发沙盒
   会复用该 PVC，并挂载到容器内 `/mydata`。删除单个沙盒不会删除该用户级 PVC。
+- 如果 `K3S_NETWORK_POLICY_ENABLED=true`，申请容器时会在该用户 namespace 下创建/更新 devbox
+  NetworkPolicy：默认拒绝 devbox 入站/出站，仅放行 Traefik 访问 Pod `3000`、`K3S_DEVBOX_DNS_NAMESERVERS`
+  的 DNS 查询（若该项为空则放行 CoreDNS）、公网 `80/443`（排除
+  `K3S_NETWORK_POLICY_PUBLIC_WEB_EXCEPT_CIDRS` 中的私网/metadata 网段），以及
+  `K3S_NETWORK_POLICY_INTERNAL_ALLOW_RULES` 显式配置的内网白名单。内网白名单格式为
+  `CIDR:PORT[/PROTOCOL]`，例如 `10.120.17.137/32:5053/tcp,10.120.20.10/32:443/tcp`。
+  注意：该能力依赖集群 CNI 支持 Kubernetes NetworkPolicy；仅 flannel 通常不会实际拦截流量。后端访问
+  Kubernetes API 的账号也需要 `networkpolicies` 的 `get/create/update/patch/delete` 等权限。
 - 申请成功时会向 `containers` 表写入 `pod_name`、`app_name`、`namespace`、`username`、
   `ssh_username`、`ssh_service_name` 和连接密码；其中
   `app_name` 使用唯一索引避免并发申请时重名。

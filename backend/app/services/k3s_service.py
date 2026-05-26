@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import base64
+import ipaddress
 import json
 import re
 import shlex
@@ -574,6 +575,7 @@ class K3SService:
         try:
             core_v1.read_namespace(name=namespace)
             logger.info('K3s namespace %s 已存在', namespace)
+            self._ensure_user_network_policies(namespace)
             return namespace
         except self._api_exception_class() as exc:
             if exc.status != 404:
@@ -583,10 +585,12 @@ class K3SService:
         try:
             core_v1.create_namespace(self._namespace_body(namespace, emp_id))
             logger.info('K3s namespace %s 创建成功', namespace)
+            self._ensure_user_network_policies(namespace)
             return namespace
         except self._api_exception_class() as exc:
             if exc.status == 409:
                 logger.info('K3s namespace %s 已存在', namespace)
+                self._ensure_user_network_policies(namespace)
                 return namespace
             logger.warning('K3s namespace %s 创建失败：%s', namespace, exc)
             raise RuntimeError(f'创建 namespace 失败：{exc.reason or exc.status}') from exc
@@ -639,6 +643,316 @@ class K3SService:
                 },
             )
         )
+
+    def _ensure_user_network_policies(self, namespace: str) -> None:
+        """为用户 namespace 下发开发沙盒网络隔离策略。
+
+        策略目标是：默认隔离 devbox Pod，只放行不影响正常开发的必要流量：
+        Traefik -> Pod:3000、DNS、公网 80/443（排除私网/metadata 网段）以及显式配置的内网白名单。
+        Kubernetes NetworkPolicy 没有显式 deny 语义，因此这里使用 default-deny + allowlist 组合。
+        """
+        if not self.settings.k3s_network_policy_enabled:
+            return
+
+        policies = [
+            self._devbox_default_deny_network_policy(namespace),
+            self._devbox_allow_traefik_network_policy(namespace),
+            self._devbox_allow_dns_network_policy(namespace),
+        ]
+        if self.settings.k3s_network_policy_public_web_egress_enabled:
+            policies.append(self._devbox_allow_public_web_egress_network_policy(namespace))
+
+        for policy in policies:
+            self._apply_network_policy(namespace, policy)
+
+        internal_policy = self._devbox_allow_internal_egress_network_policy(namespace)
+        if internal_policy is not None:
+            self._apply_network_policy(namespace, internal_policy)
+        else:
+            self._delete_network_policy_if_exists(namespace, 'campus-ai-allow-approved-internal-egress')
+
+    def _apply_network_policy(self, namespace: str, policy) -> None:
+        api_exception = self._api_exception_class()
+        policy_name = policy.metadata.name
+        try:
+            existing = self._networking().read_namespaced_network_policy(name=policy_name, namespace=namespace)
+            if existing.metadata and existing.metadata.resource_version:
+                policy.metadata.resource_version = existing.metadata.resource_version
+            self._networking().replace_namespaced_network_policy(
+                name=policy_name,
+                namespace=namespace,
+                body=policy,
+            )
+        except api_exception as exc:
+            if exc.status == 404:
+                self._networking().create_namespaced_network_policy(namespace=namespace, body=policy)
+                return
+            logger.warning('应用 NetworkPolicy %s/%s 失败：%s', namespace, policy_name, exc)
+            raise RuntimeError(f'应用网络隔离策略失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('应用 NetworkPolicy %s/%s 异常：%s', namespace, policy_name, exc)
+            raise RuntimeError(f'应用网络隔离策略失败：{exc}') from exc
+
+    def _delete_network_policy_if_exists(self, namespace: str, policy_name: str) -> None:
+        api_exception = self._api_exception_class()
+        try:
+            self._networking().read_namespaced_network_policy(name=policy_name, namespace=namespace)
+        except api_exception as exc:
+            if exc.status == 404:
+                return
+            logger.warning('查询 NetworkPolicy %s/%s 失败：%s', namespace, policy_name, exc)
+            raise RuntimeError(f'查询网络隔离策略失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('查询 NetworkPolicy %s/%s 异常：%s', namespace, policy_name, exc)
+            raise RuntimeError(f'查询网络隔离策略失败：{exc}') from exc
+
+        try:
+            self._networking().delete_namespaced_network_policy(name=policy_name, namespace=namespace)
+        except api_exception as exc:
+            if exc.status != 404:
+                logger.warning('删除 NetworkPolicy %s/%s 失败：%s', namespace, policy_name, exc)
+                raise RuntimeError(f'删除网络隔离策略失败：{exc.reason or exc.status}') from exc
+        except Exception as exc:
+            logger.warning('删除 NetworkPolicy %s/%s 异常：%s', namespace, policy_name, exc)
+            raise RuntimeError(f'删除网络隔离策略失败：{exc}') from exc
+
+    @staticmethod
+    def _devbox_pod_selector():
+        from kubernetes import client
+
+        return client.V1LabelSelector(match_labels={'app': 'campus-ai-devbox'})
+
+    @staticmethod
+    def _network_policy_meta(namespace: str, name: str):
+        from kubernetes import client
+
+        return client.V1ObjectMeta(
+            name=name,
+            namespace=namespace,
+            labels={
+                'app.kubernetes.io/managed-by': 'campus-ai',
+                'campus-ai/network-policy': 'devbox',
+            },
+        )
+
+    def _devbox_default_deny_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-devbox-default-deny'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Ingress', 'Egress'],
+                ingress=[],
+                egress=[],
+            ),
+        )
+
+    def _devbox_allow_traefik_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        traefik_namespace = self.settings.k3s_network_policy_traefik_namespace.strip() or 'kube-system'
+        traefik_labels = self._parse_label_pairs(self.settings.k3s_network_policy_traefik_pod_labels)
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-traefik-web-ingress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Ingress'],
+                ingress=[
+                    client.V1NetworkPolicyIngressRule(
+                        _from=[
+                            client.V1NetworkPolicyPeer(
+                                namespace_selector=client.V1LabelSelector(
+                                    match_labels={'kubernetes.io/metadata.name': traefik_namespace}
+                                ),
+                                pod_selector=client.V1LabelSelector(match_labels=traefik_labels),
+                            )
+                        ],
+                        ports=[client.V1NetworkPolicyPort(protocol='TCP', port=3000)],
+                    )
+                ],
+            ),
+        )
+
+    def _devbox_allow_dns_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        dns_cidrs = [self._cidr_for_address(value) for value in self.settings.k3s_devbox_dns_nameservers]
+        dns_cidrs = [value for value in dns_cidrs if value]
+        if dns_cidrs:
+            peers = [
+                client.V1NetworkPolicyPeer(ip_block=client.V1IPBlock(cidr=cidr))
+                for cidr in dns_cidrs
+            ]
+        else:
+            coredns_namespace = self.settings.k3s_network_policy_coredns_namespace.strip() or 'kube-system'
+            coredns_labels = self._parse_label_pairs(self.settings.k3s_network_policy_coredns_pod_labels)
+            peers = [
+                client.V1NetworkPolicyPeer(
+                    namespace_selector=client.V1LabelSelector(
+                        match_labels={'kubernetes.io/metadata.name': coredns_namespace}
+                    ),
+                    pod_selector=client.V1LabelSelector(match_labels=coredns_labels),
+                )
+            ]
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-dns-egress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Egress'],
+                egress=[
+                    client.V1NetworkPolicyEgressRule(
+                        to=peers,
+                        ports=[
+                            client.V1NetworkPolicyPort(protocol='UDP', port=53),
+                            client.V1NetworkPolicyPort(protocol='TCP', port=53),
+                        ],
+                    )
+                ],
+            ),
+        )
+
+    def _devbox_allow_public_web_egress_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        except_cidrs = [
+            cidr
+            for cidr in (
+                self._normalize_cidr(value)
+                for value in self.settings.k3s_network_policy_public_web_except_cidrs
+            )
+            if cidr
+        ]
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-public-web-egress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Egress'],
+                egress=[
+                    client.V1NetworkPolicyEgressRule(
+                        to=[
+                            client.V1NetworkPolicyPeer(
+                                ip_block=client.V1IPBlock(cidr='0.0.0.0/0', _except=except_cidrs or None)
+                            )
+                        ],
+                        ports=[
+                            client.V1NetworkPolicyPort(protocol='TCP', port=80),
+                            client.V1NetworkPolicyPort(protocol='TCP', port=443),
+                        ],
+                    )
+                ],
+            ),
+        )
+
+    def _devbox_allow_internal_egress_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        egress_rules = []
+        for raw_rule in self.settings.k3s_network_policy_internal_allow_rules:
+            parsed = self._parse_internal_allow_rule(raw_rule)
+            if parsed is None:
+                continue
+            cidr, port, protocol = parsed
+            egress_rules.append(
+                client.V1NetworkPolicyEgressRule(
+                    to=[client.V1NetworkPolicyPeer(ip_block=client.V1IPBlock(cidr=cidr))],
+                    ports=[client.V1NetworkPolicyPort(protocol=protocol, port=port)],
+                )
+            )
+        if not egress_rules:
+            return None
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-approved-internal-egress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Egress'],
+                egress=egress_rules,
+            ),
+        )
+
+    @staticmethod
+    def _parse_label_pairs(values: list[str]) -> dict[str, str]:
+        labels: dict[str, str] = {}
+        for value in values:
+            if '=' not in value:
+                raise RuntimeError(f'Traefik Pod 标签配置不合法：{value}')
+            key, label_value = value.split('=', 1)
+            key = key.strip()
+            label_value = label_value.strip()
+            if not key or not label_value:
+                raise RuntimeError(f'Traefik Pod 标签配置不合法：{value}')
+            labels[key] = label_value
+        if not labels:
+            raise RuntimeError('Traefik Pod 标签配置不能为空')
+        return labels
+
+    @staticmethod
+    def _cidr_for_address(value: str) -> str | None:
+        normalized = K3SService._normalize_cidr(value)
+        if normalized:
+            return normalized
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            address = ipaddress.ip_address(stripped)
+        except ValueError as exc:
+            raise RuntimeError(f'NetworkPolicy IP 地址不合法：{value}') from exc
+        return f'{address}/32' if address.version == 4 else f'{address}/128'
+
+    @staticmethod
+    def _normalize_cidr(value: str) -> str | None:
+        stripped = value.strip()
+        if not stripped:
+            return None
+        if '/' not in stripped:
+            return None
+        try:
+            return str(ipaddress.ip_network(stripped, strict=False))
+        except ValueError as exc:
+            raise RuntimeError(f'NetworkPolicy CIDR 不合法：{value}') from exc
+
+    @staticmethod
+    def _parse_internal_allow_rule(raw_rule: str) -> tuple[str, int, str] | None:
+        """解析 K3S_NETWORK_POLICY_INTERNAL_ALLOW_RULES。
+
+        格式：CIDR:PORT[/PROTOCOL]，例如：
+        - 10.120.17.137/32:5053/tcp
+        - 10.120.20.10/32:443
+        """
+        value = raw_rule.strip()
+        if not value:
+            return None
+        cidr_part, sep, port_part = value.rpartition(':')
+        if not sep or not cidr_part or not port_part:
+            raise RuntimeError(f'内网白名单规则不合法：{raw_rule}')
+        if '/' in port_part:
+            port_text, protocol = port_part.split('/', 1)
+        else:
+            port_text, protocol = port_part, 'TCP'
+        protocol = protocol.strip().upper()
+        if protocol not in {'TCP', 'UDP', 'SCTP'}:
+            raise RuntimeError(f'内网白名单协议不合法：{raw_rule}')
+        try:
+            port = int(port_text.strip())
+        except ValueError as exc:
+            raise RuntimeError(f'内网白名单端口不合法：{raw_rule}') from exc
+        if port < 1 or port > 65535:
+            raise RuntimeError(f'内网白名单端口不合法：{raw_rule}')
+        cidr = K3SService._normalize_cidr(cidr_part)
+        if not cidr:
+            raise RuntimeError(f'内网白名单 CIDR 不合法：{raw_rule}')
+        return cidr, port, protocol
 
     def _devbox_pod_body(
         self,
