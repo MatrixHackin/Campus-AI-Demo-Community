@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
+import SiteFooter from '../components/SiteFooter'
 
 export default function LandingPage() {
   return (
@@ -46,6 +47,7 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
+      <SiteFooter />
     </div>
   )
 }

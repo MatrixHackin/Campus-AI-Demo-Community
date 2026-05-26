@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import BrandLogo from '../components/BrandLogo'
+import SiteFooter from '../components/SiteFooter'
 import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
@@ -80,6 +81,7 @@ export default function LoginPage() {
           </form>
         </section>
       </main>
+      <SiteFooter />
     </div>
   )
 }

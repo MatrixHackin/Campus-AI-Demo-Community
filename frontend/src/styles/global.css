@@ -78,6 +78,8 @@ button {
 .site-shell {
   position: relative;
   min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 28px;
 }
 
@@ -121,6 +123,24 @@ button {
   color: #ffffff;
   background: linear-gradient(145deg, var(--brand) 0%, var(--accent) 100%);
   box-shadow: 0 14px 34px rgba(47, 125, 246, 0.22);
+}
+
+.site-footer {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: 10px;
+  width: calc(100% - 56px);
+  max-width: 1180px;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 0.86rem;
+  text-align: center;
+  pointer-events: none;
+}
+
+.site-footer p {
+  margin: 0;
 }
 
 .site-nav,
@@ -208,7 +228,8 @@ button {
 }
 
 .landing-main {
-  min-height: calc(100vh - 96px);
+  width: 100%;
+  min-height: 0;
   display: grid;
   align-items: center;
 }
@@ -218,7 +239,7 @@ button {
   grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.75fr);
   gap: clamp(36px, 7vw, 96px);
   align-items: center;
-  padding: 64px 0 86px;
+  padding: 48px 0;
 }
 
 .landing-copy {
@@ -489,7 +510,7 @@ button {
 
 .auth-shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
 }
 
 .auth-main {
@@ -652,10 +673,11 @@ button {
 .app-blank-main {
   position: relative;
   z-index: 1;
+  width: 100%;
   max-width: 1180px;
-  min-height: calc(100vh - 130px);
+  min-height: 0;
   margin: 0 auto;
-  padding: 40px 0 80px;
+  padding: 40px 0 48px;
 }
 
 .user-name {
@@ -2396,6 +2418,11 @@ button {
 @media (max-width: 680px) {
   .site-shell {
     padding: 18px;
+  }
+
+  .site-footer {
+    bottom: 8px;
+    width: calc(100% - 36px);
   }
 
   .modal-backdrop {

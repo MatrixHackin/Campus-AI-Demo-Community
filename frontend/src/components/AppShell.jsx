@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import BrandLogo from './BrandLogo'
+import SiteFooter from './SiteFooter'
 
 const navItems = [
   { to: '/dashboard', label: '工作台' },
@@ -42,6 +43,7 @@ export default function AppShell({ children }) {
       </header>
 
       <main className="app-blank-main">{children}</main>
+      <SiteFooter />
     </div>
   )
 }
