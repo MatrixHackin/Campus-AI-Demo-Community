@@ -11,12 +11,14 @@ import socket
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from fastapi import WebSocket
 
 from app.core.config import Settings
-from app.services.k3s_service import K3SService
+
+if TYPE_CHECKING:
+    from app.services.k3s_service import K3SService
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +168,7 @@ class SSHGatewayService:
     - 原生 SSH：AsyncSSH server :2222 -> AsyncSSH client -> Pod SSH Service
     """
 
-    def __init__(self, settings: Settings, k3s_service: K3SService) -> None:
+    def __init__(self, settings: Settings, k3s_service: 'K3SService | None' = None) -> None:
         self.settings = settings
         self.k3s_service = k3s_service
         self._server = None
@@ -238,13 +240,26 @@ class SSHGatewayService:
         ssh_username: str,
         owner_username: str | None = None,
         password: str | None = None,
+        session_token: str | None = None,
     ) -> SSHTarget:
-        target = self.k3s_service.get_ssh_target(
-            app_name=app_name,
-            ssh_username=ssh_username,
-            owner_username=owner_username,
-            password=password,
-        )
+        if self.settings.ssh_gateway_resolver_mode == 'http':
+            target = self._resolve_target_via_control_plane(
+                app_name=app_name,
+                ssh_username=ssh_username,
+                password=password,
+                session_token=session_token,
+            )
+        elif self.settings.ssh_gateway_resolver_mode == 'local':
+            if self.k3s_service is None:
+                raise RuntimeError('本地 SSH 目标解析需要 K3SService')
+            target = self.k3s_service.get_ssh_target(
+                app_name=app_name,
+                ssh_username=ssh_username,
+                owner_username=owner_username,
+                password=password,
+            )
+        else:
+            raise RuntimeError(f'SSH Gateway resolver mode 不合法：{self.settings.ssh_gateway_resolver_mode}')
         return SSHTarget(
             app_name=target['app_name'],
             namespace=target['namespace'],
@@ -256,7 +271,82 @@ class SSHGatewayService:
             port=target['port'],
         )
 
+    def _resolve_target_via_control_plane(
+        self,
+        *,
+        app_name: str,
+        ssh_username: str,
+        password: str | None = None,
+        session_token: str | None = None,
+    ) -> dict[str, Any]:
+        import requests
+
+        base_url = self.settings.ssh_gateway_control_plane_base_url.strip().rstrip('/')
+        if not base_url:
+            raise RuntimeError('SSH Gateway control plane 地址未配置')
+        internal_token = self.settings.ssh_gateway_control_plane_internal_token.strip()
+        if not internal_token:
+            raise RuntimeError('SSH Gateway 内部接口令牌未配置')
+
+        try:
+            response = requests.post(
+                f'{base_url}/internal/ssh/resolve',
+                json={
+                    'app_name': app_name,
+                    'ssh_username': ssh_username,
+                    'password': password,
+                    'session_token': session_token,
+                },
+                headers={'X-Campus-AI-Internal-Token': internal_token},
+                timeout=self.settings.ssh_gateway_control_plane_timeout_seconds,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f'控制面 SSH 目标解析失败：{exc}') from exc
+
+        if response.status_code == 404:
+            raise FileNotFoundError(response.text)
+        if response.status_code in {401, 403}:
+            raise PermissionError(response.text)
+        if response.status_code >= 400:
+            raise RuntimeError(f'控制面 SSH 目标解析失败：HTTP {response.status_code} {response.text}')
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise RuntimeError('控制面 SSH 目标解析响应不是合法 JSON') from exc
+
     async def connect_target(self, target: SSHTarget):
+        mode = self.settings.ssh_gateway_target_mode
+        if mode == 'service':
+            return await self._connect_target_via_service(target)
+        if mode == 'port_forward':
+            return await self._connect_target_via_port_forward(target)
+        if mode == 'auto':
+            try:
+                return await self._connect_target_via_service(target)
+            except Exception as exc:
+                logger.warning(
+                    'SSH Service 直连失败，尝试回退 Kubernetes port-forward %s/%s：%s',
+                    target.namespace,
+                    target.app_name,
+                    exc,
+                )
+                return await self._connect_target_via_port_forward(target)
+        raise RuntimeError(f'SSH Gateway target mode 不合法：{mode}')
+
+    async def _connect_target_via_service(self, target: SSHTarget):
+        import asyncssh
+
+        ssh_conn = await asyncssh.connect(
+            target.host,
+            port=target.port,
+            username=target.ssh_username,
+            password=target.password,
+            known_hosts=None,
+            login_timeout=15,
+        )
+        return _TargetSSHConnection(ssh_conn)
+
+    async def _connect_target_via_port_forward(self, target: SSHTarget):
         import asyncssh
 
         if target.pod_name:
@@ -275,19 +365,14 @@ class SSHGatewayService:
                 bridge.close()
                 raise
 
-        ssh_conn = await asyncssh.connect(
-            target.host,
-            port=target.port,
-            username=target.ssh_username,
-            password=target.password,
-            known_hosts=None,
-            login_timeout=15,
-        )
-        return _TargetSSHConnection(ssh_conn)
+        return await self._connect_target_via_service(target)
 
     def _open_pod_tcp_bridge(self, target: SSHTarget) -> _PortForwardTCPBridge:
         from kubernetes import client
         from kubernetes.stream import portforward
+
+        if self.k3s_service is None:
+            raise RuntimeError('Kubernetes port-forward 模式需要 K3SService')
 
         # 先调用一次确保 kubeconfig/in-cluster config 已加载；随后使用新的 CoreV1Api
         # 实例，避免 kubernetes.stream.portforward 临时 monkeypatch 共享 ApiClient，

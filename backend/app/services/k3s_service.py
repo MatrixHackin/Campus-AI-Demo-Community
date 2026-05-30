@@ -657,6 +657,7 @@ class K3SService:
         policies = [
             self._devbox_default_deny_network_policy(namespace),
             self._devbox_allow_traefik_network_policy(namespace),
+            self._devbox_allow_ssh_gateway_network_policy(namespace),
             self._devbox_allow_dns_network_policy(namespace),
         ]
         if self.settings.k3s_network_policy_public_web_egress_enabled:
@@ -778,6 +779,34 @@ class K3SService:
             ),
         )
 
+    def _devbox_allow_ssh_gateway_network_policy(self, namespace: str):
+        from kubernetes import client
+
+        gateway_namespace = self.settings.k3s_network_policy_ssh_gateway_namespace.strip() or 'campus-ai-system'
+        gateway_labels = self._parse_label_pairs(self.settings.k3s_network_policy_ssh_gateway_pod_labels)
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-ssh-gateway-ingress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Ingress'],
+                ingress=[
+                    client.V1NetworkPolicyIngressRule(
+                        _from=[
+                            client.V1NetworkPolicyPeer(
+                                namespace_selector=client.V1LabelSelector(
+                                    match_labels={'kubernetes.io/metadata.name': gateway_namespace}
+                                ),
+                                pod_selector=client.V1LabelSelector(match_labels=gateway_labels),
+                            )
+                        ],
+                        ports=[client.V1NetworkPolicyPort(protocol='TCP', port=22)],
+                    )
+                ],
+            ),
+        )
+
     def _devbox_allow_dns_network_policy(self, namespace: str):
         from kubernetes import client
 
@@ -885,15 +914,15 @@ class K3SService:
         labels: dict[str, str] = {}
         for value in values:
             if '=' not in value:
-                raise RuntimeError(f'Traefik Pod 标签配置不合法：{value}')
+                raise RuntimeError(f'Pod 标签配置不合法：{value}')
             key, label_value = value.split('=', 1)
             key = key.strip()
             label_value = label_value.strip()
             if not key or not label_value:
-                raise RuntimeError(f'Traefik Pod 标签配置不合法：{value}')
+                raise RuntimeError(f'Pod 标签配置不合法：{value}')
             labels[key] = label_value
         if not labels:
-            raise RuntimeError('Traefik Pod 标签配置不能为空')
+            raise RuntimeError('Pod 标签配置不能为空')
         return labels
 
     @staticmethod

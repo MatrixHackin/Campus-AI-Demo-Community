@@ -1,0 +1,15 @@
+[Unit]
+Description=Campus AI SSH Gateway TCP Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ldaphome/liuhemu/document/Campus-AI-Demo-Community
+ExecStart=/home/ldaphome/liuhemu/miniconda3/bin/python3 /home/ldaphome/liuhemu/document/Campus-AI-Demo-Community/deploy/tcp_proxy.py --listen-host 0.0.0.0 --listen-port 2222 --target-host 127.0.0.1 --target-port 32222
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

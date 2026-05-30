@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     sso_scope: str = 'openid profile'
     sso_user_persistence_enabled: bool = True
     sso_user_table: str = 'sso_users'
+    internal_api_token: str = ''
 
     harbor_url: str = ''
     harbor_registry: str = 'gpunion2.io'
@@ -109,6 +110,10 @@ class Settings(BaseSettings):
     k3s_network_policy_coredns_pod_labels: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: ['k8s-app=kube-dns']
     )
+    k3s_network_policy_ssh_gateway_namespace: str = 'campus-ai-system'
+    k3s_network_policy_ssh_gateway_pod_labels: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['app=ssh-gateway']
+    )
     k3s_network_policy_internal_allow_rules: Annotated[List[str], NoDecode] = Field(default_factory=list)
 
     ssh_gateway_enabled: bool = True
@@ -116,6 +121,11 @@ class Settings(BaseSettings):
     ssh_gateway_port: int = 2222
     ssh_gateway_public_host: str = '10.120.17.138'
     ssh_gateway_host_key_path: str | None = '.run/ssh_gateway_host_key'
+    ssh_gateway_target_mode: str = 'port_forward'
+    ssh_gateway_resolver_mode: str = 'local'
+    ssh_gateway_control_plane_base_url: str = 'http://127.0.0.1:8001'
+    ssh_gateway_control_plane_internal_token: str = ''
+    ssh_gateway_control_plane_timeout_seconds: float = 5.0
     webssh_public_path_prefix: str = '/ssh'
 
     published_cover_storage_dir: str = 'static/covers'
@@ -166,10 +176,27 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(',') if item.strip()]
         return value
 
+    @field_validator('ssh_gateway_target_mode', mode='before')
+    @classmethod
+    def normalize_ssh_gateway_target_mode(cls, value):
+        if isinstance(value, str):
+            value = value.strip().lower().replace('-', '_')
+            if value == 'portforward':
+                value = 'port_forward'
+        return value
+
+    @field_validator('ssh_gateway_resolver_mode', mode='before')
+    @classmethod
+    def normalize_ssh_gateway_resolver_mode(cls, value):
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
     @field_validator(
         'k3s_network_policy_public_web_except_cidrs',
         'k3s_network_policy_traefik_pod_labels',
         'k3s_network_policy_coredns_pod_labels',
+        'k3s_network_policy_ssh_gateway_pod_labels',
         'k3s_network_policy_internal_allow_rules',
         mode='before',
     )
@@ -184,6 +211,7 @@ class Settings(BaseSettings):
         'k3s_apps_public_base_url',
         'webssh_public_path_prefix',
         'published_cover_public_prefix',
+        'ssh_gateway_control_plane_base_url',
         mode='before',
     )
     @classmethod

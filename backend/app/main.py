@@ -5,6 +5,7 @@ from app.api.deps import settings, ssh_gateway_service
 from app.api.routes.auth import api_router as auth_api_router, browser_router as auth_browser_router, callback_router
 from app.api.routes.community import router as community_router
 from app.api.routes.harbor import router as harbor_router
+from app.api.routes.internal import router as internal_router
 from app.api.routes.k3s import router as k3s_router
 from app.api.routes.ssh import router as ssh_router
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +39,7 @@ def create_application() -> FastAPI:
     application.include_router(harbor_router, prefix='/api/v1')
     application.include_router(k3s_router, prefix='/api/v1')
     application.include_router(ssh_router, prefix='/api/v1')
+    application.include_router(internal_router)
     application.include_router(auth_browser_router)
     application.include_router(callback_router)
     application.mount('/api/static', StaticFiles(directory='static', check_dir=False), name='api-static')

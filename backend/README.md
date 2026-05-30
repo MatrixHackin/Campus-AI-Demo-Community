@@ -192,12 +192,20 @@ K3S_NETWORK_POLICY_TRAEFIK_NAMESPACE=kube-system
 K3S_NETWORK_POLICY_TRAEFIK_POD_LABELS=app.kubernetes.io/name=traefik
 K3S_NETWORK_POLICY_COREDNS_NAMESPACE=kube-system
 K3S_NETWORK_POLICY_COREDNS_POD_LABELS=k8s-app=kube-dns
+K3S_NETWORK_POLICY_SSH_GATEWAY_NAMESPACE=campus-ai-system
+K3S_NETWORK_POLICY_SSH_GATEWAY_POD_LABELS=app=ssh-gateway
 K3S_NETWORK_POLICY_INTERNAL_ALLOW_RULES=
+INTERNAL_API_TOKEN=
 SSH_GATEWAY_ENABLED=true
 SSH_GATEWAY_HOST=0.0.0.0
 SSH_GATEWAY_PORT=2222
 SSH_GATEWAY_PUBLIC_HOST=10.120.17.138
 SSH_GATEWAY_HOST_KEY_PATH=.run/ssh_gateway_host_key
+SSH_GATEWAY_TARGET_MODE=port_forward
+SSH_GATEWAY_RESOLVER_MODE=local
+SSH_GATEWAY_CONTROL_PLANE_BASE_URL=http://127.0.0.1:8001
+SSH_GATEWAY_CONTROL_PLANE_INTERNAL_TOKEN=
+SSH_GATEWAY_CONTROL_PLANE_TIMEOUT_SECONDS=5
 WEBSSH_PUBLIC_PATH_PREFIX=/ssh
 PUBLISHED_COVER_STORAGE_DIR=static/covers
 PUBLISHED_COVER_PUBLIC_PREFIX=/api/static/covers
@@ -281,8 +289,13 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
   当前 kube-dns 外部域名解析超时问题；如果该配置留空，则恢复 Kubernetes 默认 `ClusterFirst` DNS。
 - devbox 镜像需内置 `openssh-server`、`bash`、`useradd`、`chpasswd`、`ssh-keygen`、`sudo`。
 - 连接密码会保存到 Kubernetes Secret 和 `containers.password`，用于 WebSSH 和原生 SSH 登录。
-- 当前后端以 systemd 进程运行在宿主机上，不直接依赖宿主机访问 K3s ClusterIP；WebSSH 和原生 SSH
-  Gateway 会通过 Kubernetes API 对目标 Pod 建立临时 port-forward，再连接容器内 SSHD。
+- 当前 FastAPI 后端以 systemd 进程运行在宿主机上，只承担控制面和内部解析接口；生产环境应配置
+  `SSH_GATEWAY_ENABLED=false`，不再由 FastAPI 维护原生 SSH 长连接。
+- WebSSH 和原生 SSH 数据面由 k3s 内的 `ssh-gateway` DaemonSet 承担，Pod 通过
+  `{app_name}-ssh-svc.{namespace}.svc.cluster.local:22` 或 Service ClusterIP 直连 devbox SSHD，不再走
+  Kubernetes API port-forward。
+- 宿主机 `10.120.17.138:2222` 由轻量 TCP proxy 转发到 `ssh-gateway-ssh` NodePort `32222`，用户 SSH
+  命令保持不变；nginx 的 `/api/v1/ssh/ws/` WebSocket 路由转发到 `ssh-gateway-web:8080`。
 - WebSSH 地址格式：`https://gpunion.hkust-gz.edu.cn/ssh/{app_name}+{ssh_username}`。
 - 第一版原生 SSH 地址格式：`ssh {ssh_username}+{app_name}@10.120.17.138 -p 2222`；如果用户名包含
   `@`、空格等特殊字符，工作台会改用等价的 `ssh -l '{ssh_username}+{app_name}' 10.120.17.138 -p 2222`。
