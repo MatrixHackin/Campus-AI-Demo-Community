@@ -187,6 +187,7 @@ class SSHGatewayService:
                         self.settings.ssh_gateway_port,
                         server_host_keys=[server_host_key],
                         reuse_address=True,
+                        line_editor=False,
                     )
                     break
                 except OSError as exc:
@@ -483,6 +484,7 @@ class _NativeSSHSession:
         self.process = None
         self.term_type = 'xterm-256color'
         self.term_size = (100, 32)
+        self.term_modes = {}
         self.command: str | None = None
         self.subsystem: str | None = None
         self.pty_was_requested = False
@@ -497,6 +499,7 @@ class _NativeSSHSession:
         self.pty_was_requested = True
         self.term_type = term_type or self.term_type
         self.term_size = term_size or self.term_size
+        self.term_modes = term_modes or {}
         return True
 
     def shell_requested(self) -> bool:
@@ -563,12 +566,15 @@ class _NativeSSHSession:
                         'request_pty': True,
                         'term_type': self.term_type,
                         'term_size': self.term_size,
+                        'term_modes': self.term_modes,
                     }
                 self.process = await self.ssh_conn.create_process(self.command, **process_kwargs)
             else:
                 self.process = await self.ssh_conn.create_process(
+                    request_pty=True,
                     term_type=self.term_type,
                     term_size=self.term_size,
+                    term_modes=self.term_modes,
                 )
             for data in self._pending_input:
                 self.process.stdin.write(data)
