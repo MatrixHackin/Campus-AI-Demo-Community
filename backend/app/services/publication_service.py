@@ -8,6 +8,7 @@ from typing import BinaryIO
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
+from app.services.notification_service import NotificationService
 from app.services.platform_settings_repository import PlatformSettingsRepository
 from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
@@ -22,11 +23,12 @@ logger = logging.getLogger(__name__)
 
 
 class PublicationService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, notification_service: NotificationService | None = None) -> None:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
         self.repository = PublicationRepository(settings)
         self.platform_settings = PlatformSettingsRepository(settings)
+        self.notification_service = notification_service
 
     def list_public_apps(self, session: SessionRecord | None = None) -> dict:
         return {
@@ -207,7 +209,9 @@ class PublicationService:
         )
         if not row:
             raise FileNotFoundError('未找到待审核应用')
-        return self._serialize(row)
+        serialized = self._serialize(row)
+        self._notify_review_rejected(serialized, reason, session)
+        return serialized
 
     def unpublish_app(self, *, pod_name: str, session: SessionRecord) -> dict | None:
         row = self.repository.get_by_pod_name(pod_name)
@@ -348,6 +352,25 @@ class PublicationService:
     @staticmethod
     def _user_key(session: SessionRecord) -> str:
         return session.user_id or f'{session.auth_provider}:{session.username}'
+
+    def _notify_review_rejected(self, publication: dict, reject_reason: str, session: SessionRecord) -> None:
+        if not self.notification_service:
+            return
+        recipient_username = publication.get('owner_username')
+        if not recipient_username:
+            return
+        try:
+            self.notification_service.notify_user(
+                recipient_username=recipient_username,
+                title='应用审核未通过',
+                content=f'你的应用「{publication.get("app_name") or publication.get("pod_name")}」审核未通过，原因：{reject_reason}',
+                notification_type='review_rejected',
+                sender_username=session.username,
+                related_type='publication',
+                related_id=publication.get('id'),
+            )
+        except Exception as exc:
+            logger.warning('发送应用审核拒绝通知失败：%s', exc)
 
     @staticmethod
     def _normalize_review_policy(value: str) -> str:

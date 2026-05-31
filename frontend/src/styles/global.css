@@ -670,6 +670,39 @@ button {
   gap: 12px;
 }
 
+.notification-button {
+  position: relative;
+  min-height: 34px;
+  border: 1px solid rgba(47, 125, 246, 0.16);
+  border-radius: 999px;
+  padding: 0 13px;
+  color: var(--brand);
+  background: rgba(255, 255, 255, 0.7);
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.notification-button span {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 21px;
+  height: 21px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 5px;
+  color: #ffffff;
+  background: var(--danger-text);
+  font-size: 0.72rem;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(180, 35, 58, 0.18);
+}
+
+.notification-button:hover {
+  background: rgba(47, 125, 246, 0.08);
+}
+
 .app-blank-main {
   position: relative;
   z-index: 1;
@@ -1111,6 +1144,119 @@ button {
 .modal-backdrop--dashboard .modal-card {
   max-height: min(720px, calc(100vh - 48px));
   margin-top: 0;
+}
+
+.notification-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.18);
+}
+
+.notification-drawer {
+  width: min(440px, 100vw);
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 14px;
+  padding: 22px;
+  overflow-y: auto;
+  border-left: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(248, 251, 255, 0.96);
+  box-shadow: -24px 0 64px rgba(22, 46, 79, 0.18);
+}
+
+.notification-drawer__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.notification-drawer__head h2 {
+  margin: 0;
+  font-size: 1.32rem;
+}
+
+.notification-drawer__head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.notification-drawer__toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.notification-item {
+  display: grid;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.notification-item--unread {
+  border-color: rgba(47, 125, 246, 0.26);
+  background: rgba(47, 125, 246, 0.07);
+}
+
+.notification-item__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.notification-item__title h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.98rem;
+}
+
+.notification-item__title span {
+  flex: none;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--brand);
+  background: rgba(47, 125, 246, 0.09);
+  font-size: 0.74rem;
+  font-weight: 760;
+}
+
+.notification-item p {
+  margin: 0;
+  color: #405269;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.notification-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.notification-item__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .dashboard-modal-card {
@@ -1939,6 +2085,95 @@ button {
   justify-content: flex-end;
 }
 
+.admin-notification-panel {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+
+.admin-notification-form,
+.admin-notification-item {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-notification-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.admin-notification-form__row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-notification-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.admin-notification-form input,
+.admin-notification-form select,
+.admin-notification-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+  font: inherit;
+}
+
+.admin-notification-form input,
+.admin-notification-form select {
+  min-height: 40px;
+}
+
+.admin-notification-form textarea {
+  min-height: 128px;
+  padding-top: 10px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.admin-notification-form__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.admin-notification-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-notification-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px;
+}
+
+.admin-notification-item__main {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-notification-item__main p {
+  margin: 0;
+  color: #405269;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .my-app-card {
   border-radius: 26px;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -2561,7 +2796,7 @@ button {
   .app-nav__links {
     justify-self: stretch;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
   }
 
   .app-nav__account {
@@ -2571,6 +2806,10 @@ button {
 
   .manual-layout {
     grid-template-columns: 1fr;
+  }
+
+  .admin-notification-form__row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .manual-toc {
@@ -2627,6 +2866,26 @@ button {
 
   .modal-backdrop--dashboard .modal-card {
     max-height: calc(100vh - 28px);
+  }
+
+  .notification-layer {
+    justify-content: stretch;
+  }
+
+  .notification-drawer {
+    width: 100vw;
+    padding: 18px;
+  }
+
+  .notification-item__actions,
+  .notification-drawer__toolbar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-notification-form__row,
+  .admin-notification-item {
+    grid-template-columns: 1fr;
   }
 
   .gpu-resource-grid {

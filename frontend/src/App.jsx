@@ -7,6 +7,7 @@ import CommunityPage from './pages/CommunityPage'
 import MyAppsPage from './pages/MyAppsPage'
 import DeveloperManualPage from './pages/DeveloperManualPage'
 import AdminPublicationReviewPage from './pages/AdminPublicationReviewPage'
+import AdminNotificationsPage from './pages/AdminNotificationsPage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 const WebSshPage = lazy(() => import('./pages/WebSshPage'))
@@ -53,6 +54,14 @@ export default function App() {
         element={
           <ProtectedRoute>
             <AdminPublicationReviewPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/notifications"
+        element={
+          <ProtectedRoute>
+            <AdminNotificationsPage />
           </ProtectedRoute>
         }
       />

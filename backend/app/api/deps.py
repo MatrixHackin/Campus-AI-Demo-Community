@@ -5,6 +5,8 @@ from app.services.auth_service import AuthService
 from app.services.container_usage_service import ContainerUsageService
 from app.services.harbor_service import HarborService
 from app.services.k3s_service import K3SService
+from app.services.notification_event_bus import NotificationEventBus
+from app.services.notification_service import NotificationService
 from app.services.publication_service import PublicationService
 from app.services.ssh_gateway_service import SSHGatewayService
 from app.services.sso_service import SSOService
@@ -18,7 +20,9 @@ harbor_service = HarborService(settings=settings)
 k3s_service = K3SService(settings=settings)
 container_usage_service = ContainerUsageService(settings=settings)
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
-publication_service = PublicationService(settings=settings)
+notification_event_bus = NotificationEventBus()
+notification_service = NotificationService(settings=settings, event_bus=notification_event_bus)
+publication_service = PublicationService(settings=settings, notification_service=notification_service)
 sso_service = SSOService(settings=settings)
 sso_user_repository = SSOUserRepository(settings=settings)
 
@@ -49,6 +53,14 @@ def get_ssh_gateway_service() -> SSHGatewayService:
 
 def get_publication_service() -> PublicationService:
     return publication_service
+
+
+def get_notification_service() -> NotificationService:
+    return notification_service
+
+
+def get_notification_event_bus() -> NotificationEventBus:
+    return notification_event_bus
 
 
 def get_sso_service() -> SSOService:

@@ -48,6 +48,37 @@ export async function getCurrentUser() {
   return request('/auth/me')
 }
 
+export async function getNotifications({ unreadOnly = false, limit = 50, offset = 0 } = {}) {
+  const query = new URLSearchParams({
+    unread_only: unreadOnly ? 'true' : 'false',
+    limit: String(limit),
+    offset: String(offset)
+  }).toString()
+  return request(`/notifications?${query}`)
+}
+
+export async function getNotificationUnreadCount() {
+  return request('/notifications/unread-count')
+}
+
+export async function markNotificationRead(notificationId) {
+  return request(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'POST'
+  })
+}
+
+export async function markAllNotificationsRead() {
+  return request('/notifications/read-all', {
+    method: 'POST'
+  })
+}
+
+export async function dismissNotification(notificationId) {
+  return request(`/notifications/${encodeURIComponent(notificationId)}/dismiss`, {
+    method: 'POST'
+  })
+}
+
 export async function getMyHarborImages({ includeTags = false } = {}) {
   const query = includeTags ? '?include_tags=true' : ''
   return request(`/harbor/me${query}`)
@@ -194,6 +225,30 @@ export async function rejectPublicationReview(publicationId, { rejectReason, rev
       review_note: reviewNote || null
     })
   })
+}
+
+export async function getAdminNotifications() {
+  return request('/admin/notifications')
+}
+
+export async function createAdminNotification(payload) {
+  return request('/admin/notifications', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteAdminNotification(notificationId) {
+  return request(`/admin/notifications/${encodeURIComponent(notificationId)}`, {
+    method: 'DELETE'
+  })
+}
+
+export function getNotificationEventUrl() {
+  const baseUrl = new URL(API_BASE_URL, window.location.origin)
+  baseUrl.pathname = `${baseUrl.pathname.replace(/\/$/, '')}/notifications/events`
+  baseUrl.search = ''
+  return baseUrl.toString()
 }
 
 export function getWebSshSocketUrl(appName, sshUsername) {
