@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     demo_display_name: str = 'Campus Admin'
     demo_emp_id: str | None = None
     token_ttl_hours: int = 12
+    admin_usernames: Annotated[List[str], NoDecode] = Field(default_factory=lambda: ['admin'])
 
     mysql_host: str = '127.0.0.1'
     mysql_port: int = 3306
@@ -131,6 +132,8 @@ class Settings(BaseSettings):
     published_cover_storage_dir: str = 'static/covers'
     published_cover_public_prefix: str = '/api/static/covers'
     published_cover_max_bytes: int = 1024 * 1024
+    app_publish_review_policy: str = 'no_review'
+    responsibility_ack_version: str = '2026-05-31'
 
     prometheus_url: str = 'http://10.43.146.195:9090'
     prometheus_query_timeout_seconds: int = 5
@@ -174,6 +177,25 @@ class Settings(BaseSettings):
     def parse_k3s_devbox_dns_nameservers(cls, value):
         if isinstance(value, str):
             return [item.strip() for item in value.split(',') if item.strip()]
+        return value
+
+    @field_validator('admin_usernames', mode='before')
+    @classmethod
+    def parse_admin_usernames(cls, value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(',') if item.strip()]
+        return value
+
+    @field_validator('app_publish_review_policy', mode='before')
+    @classmethod
+    def normalize_app_publish_review_policy(cls, value):
+        if isinstance(value, str):
+            value = value.strip().lower().replace('-', '_')
+            if value in {'none', 'off', 'disabled'}:
+                return 'no_review'
+            if value in {'all', 'required', 'require'}:
+                return 'require_review'
+            return value
         return value
 
     @field_validator('ssh_gateway_target_mode', mode='before')

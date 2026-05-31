@@ -71,15 +71,34 @@ CREATE TABLE IF NOT EXISTS published_apps (
   rating_sum INT NOT NULL DEFAULT 0,
   rating_avg DECIMAL(3,2) NOT NULL DEFAULT 0.00,
   is_published BOOLEAN NOT NULL DEFAULT TRUE,
-  published_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  review_status VARCHAR(32) NOT NULL DEFAULT 'approved',
+  submitted_at TIMESTAMP NULL DEFAULT NULL,
+  reviewed_at TIMESTAMP NULL DEFAULT NULL,
+  reviewed_by VARCHAR(255) NULL,
+  review_note TEXT NULL,
+  reject_reason TEXT NULL,
+  responsibility_ack BOOLEAN NOT NULL DEFAULT FALSE,
+  responsibility_ack_version VARCHAR(32) NULL,
+  responsibility_ack_at TIMESTAMP NULL DEFAULT NULL,
+  responsibility_ack_user_key VARCHAR(255) NULL,
+  published_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uk_published_apps_pod_name (pod_name),
   UNIQUE KEY uk_published_apps_app_name (app_name),
   KEY idx_published_apps_owner_username (owner_username),
   KEY idx_published_apps_is_published (is_published),
+  KEY idx_published_apps_review_status (review_status, submitted_at),
   KEY idx_published_apps_pod_name (pod_name),
   KEY idx_published_apps_published_at (published_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS platform_settings (
+  setting_key VARCHAR(128) NOT NULL,
+  setting_value TEXT NOT NULL,
+  updated_by VARCHAR(255) NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (setting_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS published_app_likes (

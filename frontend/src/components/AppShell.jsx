@@ -10,6 +10,10 @@ const navItems = [
   { to: '/manual', label: '开发手册' }
 ]
 
+const adminNavItems = [
+  { to: '/admin/publication-review', label: '发布审核' }
+]
+
 export default function AppShell({ children }) {
   const { user, logout } = useAuth()
   const displayName = user?.display_name || user?.username || '用户'
@@ -23,7 +27,7 @@ export default function AppShell({ children }) {
         </div>
 
         <nav className="app-nav__links" aria-label="应用导航">
-          {navItems.map((item) => (
+          {[...navItems, ...(user?.is_admin ? adminNavItems : [])].map((item) => (
             <NavLink
               key={item.to}
               className={({ isActive }) => `app-nav__link${isActive ? ' app-nav__link--active' : ''}`}

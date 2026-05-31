@@ -15,6 +15,7 @@ class LoginUser(BaseModel):
     email: str | None = None
     department: str | None = None
     emp_id: str | None = None
+    is_admin: bool = False
 
 
 class LoginResponse(BaseModel):

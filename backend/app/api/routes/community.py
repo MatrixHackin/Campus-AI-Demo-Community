@@ -2,11 +2,45 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_session, get_publication_service
-from app.schemas.community import AppReviewListResponse, AppReviewRequest, PublishedAppItem, PublishedAppListResponse
+from app.schemas.community import (
+    AppReviewListResponse,
+    AppReviewRequest,
+    PublicationStatusListResponse,
+    PublicationReviewSettings,
+    PublishedAppItem,
+    PublishedAppListResponse,
+)
 from app.services.publication_service import PublicationService
 from app.services.token_store import SessionRecord
 
 router = APIRouter(prefix='/community', tags=['community'])
+
+
+@router.get('/publication-settings', response_model=PublicationReviewSettings)
+async def get_publication_settings(
+    _current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(publication_service.get_review_settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.get('/publication-status', response_model=PublicationStatusListResponse)
+async def list_my_publication_statuses(
+    pod_names: list[str] = Query(default=[]),
+    current_session: SessionRecord = Depends(get_current_session),
+    publication_service: PublicationService = Depends(get_publication_service),
+):
+    try:
+        return await run_in_threadpool(
+            publication_service.list_publication_statuses,
+            pod_names,
+            current_session,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.get('/apps', response_model=PublishedAppListResponse)
@@ -24,6 +58,7 @@ async def list_public_apps(
 async def publish_app(
     pod_name: str,
     app_description: str = Form(...),
+    responsibility_ack: bool = Form(False),
     cover: UploadFile | None = File(default=None),
     current_session: SessionRecord = Depends(get_current_session),
     publication_service: PublicationService = Depends(get_publication_service),
@@ -33,6 +68,7 @@ async def publish_app(
             publication_service.publish_app,
             pod_name=pod_name,
             app_description=app_description,
+            responsibility_ack=responsibility_ack,
             cover_file=cover.file if cover else None,
             cover_content_type=cover.content_type if cover else None,
             session=current_session,

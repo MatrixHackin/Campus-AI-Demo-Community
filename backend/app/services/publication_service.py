@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
+from app.services.platform_settings_repository import PlatformSettingsRepository
 from app.services.publication_repository import PublicationRepository
 from app.services.token_store import SessionRecord
 
 APP_DESCRIPTION_MAX_LENGTH = 40
 APP_REVIEW_COMMENT_MAX_LENGTH = 240
+APP_PUBLISH_REVIEW_POLICY_KEY = 'app_publish_review_policy'
+RESPONSIBILITY_ACK_VERSION_KEY = 'responsibility_ack_version'
+REVIEW_POLICY_NO_REVIEW = 'no_review'
+REVIEW_POLICY_REQUIRE_REVIEW = 'require_review'
 logger = logging.getLogger(__name__)
 
 
@@ -20,6 +26,7 @@ class PublicationService:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
         self.repository = PublicationRepository(settings)
+        self.platform_settings = PlatformSettingsRepository(settings)
 
     def list_public_apps(self, session: SessionRecord | None = None) -> dict:
         return {
@@ -34,6 +41,7 @@ class PublicationService:
         *,
         pod_name: str,
         app_description: str,
+        responsibility_ack: bool,
         cover_file: BinaryIO | None,
         cover_content_type: str | None,
         session: SessionRecord,
@@ -43,6 +51,8 @@ class PublicationService:
             raise ValueError('请填写应用简述')
         if len(description) > APP_DESCRIPTION_MAX_LENGTH:
             raise ValueError(f'应用简述最多 {APP_DESCRIPTION_MAX_LENGTH} 个字符')
+        if not responsibility_ack:
+            raise ValueError('请先确认责任归属承诺知情书')
 
         record = self.container_repository.get_container_record(pod_name=pod_name)
         if not record:
@@ -60,6 +70,21 @@ class PublicationService:
         if cover_file is not None:
             cover_url = self._save_cover_file(cover_file, cover_content_type)
 
+        policy = self.get_review_policy()
+        now = datetime.now()
+        if policy == REVIEW_POLICY_REQUIRE_REVIEW:
+            review_status = 'pending'
+            is_published = False
+            reviewed_at = None
+            reviewed_by = None
+            published_at = None
+        else:
+            review_status = 'approved'
+            is_published = True
+            reviewed_at = now
+            reviewed_by = 'system'
+            published_at = now
+
         row = self.repository.upsert_publication(
             pod_name=pod_name,
             app_name=app_name,
@@ -69,10 +94,119 @@ class PublicationService:
             owner_username=session.username,
             owner_display_name=session.display_name,
             auth_provider=session.auth_provider,
+            review_status=review_status,
+            is_published=is_published,
+            submitted_at=now,
+            reviewed_at=reviewed_at,
+            reviewed_by=reviewed_by,
+            responsibility_ack_version=self.get_responsibility_ack_version(),
+            responsibility_ack_user_key=self._user_key(session),
+            published_at=published_at,
         )
 
         if cover_url and old_cover_url and cover_url != old_cover_url:
             self.delete_cover_by_url(old_cover_url)
+        return self._serialize(row)
+
+    def get_review_policy(self) -> str:
+        value = self.platform_settings.get_value(APP_PUBLISH_REVIEW_POLICY_KEY, self.settings.app_publish_review_policy)
+        return self._normalize_review_policy(value or self.settings.app_publish_review_policy)
+
+    def get_responsibility_ack_version(self) -> str:
+        return self.platform_settings.get_value(RESPONSIBILITY_ACK_VERSION_KEY, self.settings.responsibility_ack_version) or (
+            self.settings.responsibility_ack_version
+        )
+
+    def get_review_settings(self) -> dict:
+        return {
+            'review_policy': self.get_review_policy(),
+            'responsibility_ack_version': self.get_responsibility_ack_version(),
+        }
+
+    def list_publication_statuses(self, pod_names: list[str], session: SessionRecord) -> dict:
+        normalized_pod_names = []
+        seen = set()
+        for pod_name in pod_names:
+            normalized = (pod_name or '').strip()
+            if normalized and normalized not in seen:
+                normalized_pod_names.append(normalized)
+                seen.add(normalized)
+
+        rows = self.repository.get_publication_status_by_pod_names(
+            normalized_pod_names,
+            owner_username=session.username,
+        )
+        statuses = []
+        for pod_name in normalized_pod_names:
+            row = rows.get(pod_name)
+            statuses.append({
+                'pod_name': pod_name,
+                'is_published': bool(row.get('is_published')) if row else False,
+                'review_status': row.get('review_status') if row else 'unpublished',
+                'submitted_at': row.get('submitted_at').isoformat() if row and row.get('submitted_at') else None,
+                'reviewed_at': row.get('reviewed_at').isoformat() if row and row.get('reviewed_at') else None,
+            })
+        return {'statuses': statuses}
+
+    def update_review_settings(
+        self,
+        *,
+        review_policy: str,
+        responsibility_ack_version: str | None,
+        session: SessionRecord,
+    ) -> dict:
+        normalized_policy = self._normalize_review_policy(review_policy)
+        self.platform_settings.set_value(APP_PUBLISH_REVIEW_POLICY_KEY, normalized_policy, session.username)
+        if responsibility_ack_version is not None:
+            version = responsibility_ack_version.strip()
+            if not version:
+                raise ValueError('责任承诺版本不能为空')
+            if len(version) > 32:
+                raise ValueError('责任承诺版本最多 32 个字符')
+            self.platform_settings.set_value(RESPONSIBILITY_ACK_VERSION_KEY, version, session.username)
+        return self.get_review_settings()
+
+    def list_review_items(self, status_filter: str = 'pending') -> dict:
+        if status_filter not in {'pending', 'approved', 'rejected', 'all'}:
+            raise ValueError('审核状态参数不合法')
+        return {
+            'apps': [self._serialize(row) for row in self.repository.list_review_items(status_filter)],
+        }
+
+    def approve_publication(self, publication_id: int, session: SessionRecord, review_note: str | None = None) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        row = self.repository.approve_publication(
+            publication_id,
+            reviewed_by=session.username,
+            review_note=(review_note or '').strip() or None,
+        )
+        if not row:
+            raise FileNotFoundError('未找到待审核应用')
+        return self._serialize(row)
+
+    def reject_publication(
+        self,
+        publication_id: int,
+        session: SessionRecord,
+        reject_reason: str,
+        review_note: str | None = None,
+    ) -> dict:
+        if publication_id <= 0:
+            raise ValueError('应用 ID 不合法')
+        reason = reject_reason.strip()
+        if not reason:
+            raise ValueError('请填写拒绝原因')
+        if len(reason) > 500:
+            raise ValueError('拒绝原因最多 500 个字符')
+        row = self.repository.reject_publication(
+            publication_id,
+            reviewed_by=session.username,
+            reject_reason=reason,
+            review_note=(review_note or '').strip() or None,
+        )
+        if not row:
+            raise FileNotFoundError('未找到待审核应用')
         return self._serialize(row)
 
     def unpublish_app(self, *, pod_name: str, session: SessionRecord) -> dict | None:
@@ -81,10 +215,12 @@ class PublicationService:
             return None
         if row.get('owner_username') != session.username:
             raise PermissionError('无权取消发布该应用')
+        old_cover_url = row.get('cover_url')
         deleted = self.repository.delete_by_pod_name(pod_name, delete_likes=False)
-        if deleted and deleted.get('cover_url'):
-            self.delete_cover_by_url(deleted['cover_url'])
-        return self._serialize(deleted) if deleted else None
+        if deleted and old_cover_url:
+            self.delete_cover_by_url(old_cover_url)
+        updated = self.repository.get_by_pod_name(pod_name) if deleted else None
+        return self._serialize(updated or deleted) if deleted else None
 
     def record_visit(self, publication_id: int) -> dict:
         if publication_id <= 0:
@@ -214,6 +350,13 @@ class PublicationService:
         return session.user_id or f'{session.auth_provider}:{session.username}'
 
     @staticmethod
+    def _normalize_review_policy(value: str) -> str:
+        normalized = value.strip().lower().replace('-', '_')
+        if normalized in {'no_review', 'require_review'}:
+            return normalized
+        raise ValueError('审核策略只能是不审核或都要审核')
+
+    @staticmethod
     def _serialize(row: dict) -> dict:
         my_review = None
         if row.get('my_review_id'):
@@ -243,6 +386,17 @@ class PublicationService:
             'rating_avg': float(row.get('rating_avg') or 0),
             'rating_sum': int(row.get('rating_sum') or 0),
             'review_count': int(row.get('review_count') or 0),
+            'is_published': bool(row.get('is_published')),
+            'review_status': row.get('review_status') or ('approved' if row.get('is_published') else 'unpublished'),
+            'submitted_at': row.get('submitted_at').isoformat() if row.get('submitted_at') else None,
+            'reviewed_at': row.get('reviewed_at').isoformat() if row.get('reviewed_at') else None,
+            'reviewed_by': row.get('reviewed_by'),
+            'review_note': row.get('review_note'),
+            'reject_reason': row.get('reject_reason'),
+            'responsibility_ack': bool(row.get('responsibility_ack')),
+            'responsibility_ack_version': row.get('responsibility_ack_version'),
+            'responsibility_ack_at': row.get('responsibility_ack_at').isoformat()
+            if row.get('responsibility_ack_at') else None,
             'my_review': my_review,
             'published_at': row.get('published_at').isoformat() if row.get('published_at') else None,
             'updated_at': row.get('updated_at').isoformat() if row.get('updated_at') else None,

@@ -190,5 +190,6 @@ class AuthService:
                 'email': user.email,
                 'department': user.department,
                 'emp_id': user.emp_id,
+                'is_admin': user.username in set(self.settings.admin_usernames),
             },
         }

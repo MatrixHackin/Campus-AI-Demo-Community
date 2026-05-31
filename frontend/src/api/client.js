@@ -98,6 +98,19 @@ export async function getPublishedApps() {
   return request('/community/apps')
 }
 
+export async function getPublicationSettings() {
+  return request('/community/publication-settings')
+}
+
+export async function getMyPublicationStatuses(podNames) {
+  if (!podNames.length) {
+    return { statuses: [] }
+  }
+  const query = new URLSearchParams()
+  podNames.forEach((podName) => query.append('pod_names', podName))
+  return request(`/community/publication-status?${query.toString()}`)
+}
+
 export async function recordAppVisit(publicationId) {
   return request(`/community/apps/${encodeURIComponent(publicationId)}/visit`, {
     method: 'POST'
@@ -132,9 +145,10 @@ export async function deleteAppReview(publicationId) {
   })
 }
 
-export async function publishApp(podName, { appDescription, cover }) {
+export async function publishApp(podName, { appDescription, cover, responsibilityAck }) {
   const formData = new FormData()
   formData.append('app_description', appDescription)
+  formData.append('responsibility_ack', responsibilityAck ? 'true' : 'false')
   if (cover) {
     formData.append('cover', cover, cover.name || 'cover.webp')
   }
@@ -146,6 +160,39 @@ export async function publishApp(podName, { appDescription, cover }) {
 export async function unpublishApp(podName) {
   return request(`/community/apps/${encodeURIComponent(podName)}/publish`, {
     method: 'DELETE'
+  })
+}
+
+export async function getAdminPublicationSettings() {
+  return request('/admin/publication/settings')
+}
+
+export async function updateAdminPublicationSettings(payload) {
+  return request('/admin/publication/settings', {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function getPublicationReviewItems(status = 'pending') {
+  const query = new URLSearchParams({ status }).toString()
+  return request(`/admin/publication/reviews?${query}`)
+}
+
+export async function approvePublicationReview(publicationId, { reviewNote } = {}) {
+  return request(`/admin/publication/reviews/${encodeURIComponent(publicationId)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ review_note: reviewNote || null })
+  })
+}
+
+export async function rejectPublicationReview(publicationId, { rejectReason, reviewNote } = {}) {
+  return request(`/admin/publication/reviews/${encodeURIComponent(publicationId)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({
+      reject_reason: rejectReason,
+      review_note: reviewNote || null
+    })
   })
 }
 

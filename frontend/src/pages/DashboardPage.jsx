@@ -8,6 +8,8 @@ import {
   getK3sJobStatus,
   getMyContainers,
   getMyHarborImages,
+  getMyPublicationStatuses,
+  getPublicationSettings,
   publishApp,
   unpublishApp
 } from '../api/client'
@@ -24,6 +26,13 @@ const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 const COMMIT_JOB_REFRESH_INTERVAL_MS = 5000
 const COMMIT_JOB_MAX_ATTEMPTS = 200
 const FALLBACK_DEVBOX_IMAGE = 'gpunion2.io/dev/devbox:latest'
+const VISIBLE_REFRESH_MIN_INTERVAL_MS = 2000
+const PUBLICATION_BUTTON_LABELS = {
+  pending: '审核中',
+  approved: '取消发布',
+  rejected: '重新审核',
+  unpublished: '发布'
+}
 const GPU_DEFAULT_RESOURCES = {
   gpuCount: '1',
   cpuCores: '8',
@@ -56,8 +65,31 @@ function containerFromCreateResult(result) {
     ssh_username: result.ssh_username,
     webssh_url: result.webssh_url,
     native_ssh_command: result.native_ssh_command,
-    is_published: false
+    is_published: false,
+    publication_status: 'unpublished',
+    publication_submitted_at: null,
+    publication_reviewed_at: null
   }
+}
+
+function publicationStateFromRecord(record) {
+  const reviewStatus = record?.review_status || record?.publication_status || (
+    record?.is_published ? 'approved' : 'unpublished'
+  )
+  return {
+    is_published: Boolean(record?.is_published),
+    publication_status: reviewStatus || 'unpublished',
+    publication_submitted_at: record?.submitted_at || record?.publication_submitted_at || null,
+    publication_reviewed_at: record?.reviewed_at || record?.publication_reviewed_at || null
+  }
+}
+
+function mergePublicationStatuses(containers, statuses) {
+  const statusByPodName = new Map((statuses || []).map((statusItem) => [statusItem.pod_name, statusItem]))
+  return (containers || []).map((container) => ({
+    ...container,
+    ...publicationStateFromRecord(statusByPodName.get(container.name) || container)
+  }))
 }
 
 function loadImage(file) {
@@ -294,6 +326,11 @@ function ContainerList({
         const displayName = container.app_name || container.name
         const saveState = savingJobs[container.name]
         const isSaving = saveState && !['Succeeded', 'Failed', 'NotFound', 'Error'].includes(saveState.status)
+        const publicationStatus = container.publication_status || (container.is_published ? 'approved' : 'unpublished')
+        const canUnpublish = publicationStatus === 'approved'
+        const canPublish = ['unpublished', 'rejected'].includes(publicationStatus)
+        const isPendingReview = publicationStatus === 'pending'
+        const publicationButtonLabel = PUBLICATION_BUTTON_LABELS[publicationStatus] || '发布'
         return (
           <div className="container-row" key={container.name}>
             <span className="container-row__image" title={container.image || imageName} aria-hidden="true">
@@ -314,14 +351,6 @@ function ContainerList({
                   disabled={!container.url}
                 >
                   访问应用
-                </button>
-                <button
-                  className={`container-publish-button${container.is_published ? ' container-publish-button--published' : ''}`}
-                  type="button"
-                  onClick={() => (container.is_published ? onUnpublish(container) : onOpenPublish(container))}
-                  disabled={publishingPodName === container.name || !container.app_name}
-                >
-                  {container.is_published ? '取消发布' : '发布'}
                 </button>
                 <button
                   className="container-action-button"
@@ -377,6 +406,25 @@ function ContainerList({
                   Cursor连接
                 </button>
               </div>
+              <div className="container-row__action-line container-row__action-line--publication">
+                <button
+                  className={[
+                    'container-publish-button',
+                    `container-publish-button--${publicationStatus}`,
+                    canUnpublish ? 'container-publish-button--published' : ''
+                  ].filter(Boolean).join(' ')}
+                  type="button"
+                  onClick={() => (canUnpublish ? onUnpublish(container) : onOpenPublish(container))}
+                  disabled={
+                    publishingPodName === container.name
+                    || !container.app_name
+                    || isPendingReview
+                    || (!canPublish && !canUnpublish)
+                  }
+                >
+                  {publishingPodName === container.name ? '处理中…' : publicationButtonLabel}
+                </button>
+              </div>
             </div>
           </div>
         )
@@ -390,10 +438,13 @@ function PublishAppModal({
   description,
   coverFile,
   error,
+  reviewSettings,
+  responsibilityAck,
   submitting,
   onClose,
   onCoverChange,
   onDescriptionChange,
+  onResponsibilityAckChange,
   onSubmit
 }) {
   if (!app) return null
@@ -405,7 +456,11 @@ function PublishAppModal({
         <div className="modal-card__header">
           <div>
             <h2 id="publish-title">发布应用</h2>
-            <p>发布后将在应用市场展示为应用卡片。</p>
+            <p>
+              {reviewSettings?.review_policy === 'require_review'
+                ? '提交后将进入管理员审核，通过后展示在应用市场。'
+                : '发布后将在应用市场展示为应用卡片。'}
+            </p>
           </div>
         </div>
 
@@ -440,14 +495,31 @@ function PublishAppModal({
               : '未上传封面时，应用市场会使用默认渐变封面。'}
           </p>
 
+          <label className="publish-acknowledgement">
+            <input
+              type="checkbox"
+              checked={responsibilityAck}
+              onChange={(event) => onResponsibilityAckChange(event.target.checked)}
+              disabled={submitting}
+              required
+            />
+            <span>
+              我已知悉并承诺：该应用的内容、数据处理、外部调用、生成内容和对外服务行为由我本人负责；不会发布违法违规、侵权、涉密、恶意或影响平台稳定性的内容。
+            </span>
+          </label>
+
           {error ? <div className="feedback feedback--error">{error}</div> : null}
 
           <div className="modal-actions">
             <button className="btn btn--ghost" type="button" onClick={onClose} disabled={submitting}>
               取消
             </button>
-            <button className="btn btn--primary" type="submit" disabled={submitting}>
-              {submitting ? '发布中…' : '确认发布'}
+            <button className="btn btn--primary" type="submit" disabled={submitting || !responsibilityAck}>
+              {submitting
+                ? '提交中…'
+                : reviewSettings?.review_policy === 'require_review'
+                  ? '提交审核'
+                  : '确认发布'}
             </button>
           </div>
         </form>
@@ -639,11 +711,14 @@ export default function DashboardPage() {
   const [publishDescription, setPublishDescription] = useState('')
   const [publishCoverFile, setPublishCoverFile] = useState(null)
   const [publishError, setPublishError] = useState('')
+  const [publishReviewSettings, setPublishReviewSettings] = useState(null)
+  const [responsibilityAck, setResponsibilityAck] = useState(false)
   const [publishingPodName, setPublishingPodName] = useState('')
   const [savingJobs, setSavingJobs] = useState({})
   const [selectedImage, setSelectedImage] = useState(FALLBACK_DEVBOX_IMAGE)
   const containerPollTimersRef = useRef([])
   const commitPollTimersRef = useRef([])
+  const lastVisibleRefreshRef = useRef(0)
 
   const scheduleManagedTimeout = useCallback((timersRef, callback, delay) => {
     const timerId = window.setTimeout(() => {
@@ -676,22 +751,41 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const loadContainers = useCallback(async ({ showLoading = true } = {}) => {
+  const loadPublicationSettings = useCallback(async () => {
+    try {
+      const result = await getPublicationSettings()
+      setPublishReviewSettings(result)
+    } catch {
+      setPublishReviewSettings({ review_policy: 'no_review', responsibility_ack_version: '' })
+    }
+  }, [])
+
+  const loadContainers = useCallback(async ({ showLoading = true, silent = false } = {}) => {
     if (showLoading) {
       setContainersLoading(true)
     }
-    setContainersError('')
+    if (!silent) {
+      setContainersError('')
+    }
     try {
       const result = await getMyContainers()
-      setContainersInfo(result)
+      const podNames = (result.containers || []).map((container) => container.name).filter(Boolean)
+      const publicationStatuses = await getMyPublicationStatuses(podNames)
+      const enrichedResult = {
+        ...result,
+        containers: mergePublicationStatuses(result.containers || [], publicationStatuses.statuses || [])
+      }
+      setContainersInfo(enrichedResult)
       setHiddenDeletingPods((prev) => {
         if (!prev.length) return prev
-        const existingPodNames = new Set((result.containers || []).map((container) => container.name))
+        const existingPodNames = new Set((enrichedResult.containers || []).map((container) => container.name))
         return prev.filter((podName) => existingPodNames.has(podName))
       })
-      return result
+      return enrichedResult
     } catch (err) {
-      setContainersError(err.message)
+      if (!silent) {
+        setContainersError(err.message)
+      }
       return null
     } finally {
       if (showLoading) {
@@ -703,7 +797,25 @@ export default function DashboardPage() {
   useEffect(() => {
     loadHarborImages()
     loadContainers()
-  }, [loadHarborImages, loadContainers])
+    loadPublicationSettings()
+  }, [loadHarborImages, loadContainers, loadPublicationSettings])
+
+  useEffect(() => {
+    const refreshVisibleContainers = () => {
+      if (document.visibilityState === 'visible') {
+        const now = Date.now()
+        if (now - lastVisibleRefreshRef.current < VISIBLE_REFRESH_MIN_INTERVAL_MS) return
+        lastVisibleRefreshRef.current = now
+        loadContainers({ showLoading: false, silent: true })
+      }
+    }
+    window.addEventListener('focus', refreshVisibleContainers)
+    document.addEventListener('visibilitychange', refreshVisibleContainers)
+    return () => {
+      window.removeEventListener('focus', refreshVisibleContainers)
+      document.removeEventListener('visibilitychange', refreshVisibleContainers)
+    }
+  }, [loadContainers])
 
   useEffect(() => {
     if (!harborInfo) return
@@ -972,7 +1084,9 @@ export default function DashboardPage() {
     setPublishDescription('')
     setPublishCoverFile(null)
     setPublishError('')
-  }, [])
+    setResponsibilityAck(false)
+    loadPublicationSettings()
+  }, [loadPublicationSettings])
 
   const handleClosePublishModal = useCallback(() => {
     if (publishingPodName) return
@@ -980,6 +1094,7 @@ export default function DashboardPage() {
     setPublishDescription('')
     setPublishCoverFile(null)
     setPublishError('')
+    setResponsibilityAck(false)
   }, [publishingPodName])
 
   const handlePublishCoverChange = useCallback(async (event) => {
@@ -995,11 +1110,16 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const markContainerPublished = useCallback((podName, isPublished) => {
+  const updateContainerPublication = useCallback((podName, publication) => {
     setContainersInfo((prev) => ({
       ...prev,
       containers: (prev?.containers || []).map((container) => (
-        container.name === podName ? { ...container, is_published: isPublished } : container
+        container.name === podName
+          ? {
+              ...container,
+              ...publicationStateFromRecord(publication)
+            }
+          : container
       ))
     }))
   }, [])
@@ -1015,24 +1135,30 @@ export default function DashboardPage() {
       setPublishError(`应用简述最多 ${APP_DESCRIPTION_MAX_LENGTH} 个字符`)
       return
     }
+    if (!responsibilityAck) {
+      setPublishError('请先确认责任归属承诺知情书')
+      return
+    }
 
     setPublishingPodName(publishTarget.name)
     setPublishError('')
     try {
-      await publishApp(publishTarget.name, {
+      const publication = await publishApp(publishTarget.name, {
         appDescription: publishDescription.trim(),
-        cover: publishCoverFile
+        cover: publishCoverFile,
+        responsibilityAck
       })
-      markContainerPublished(publishTarget.name, true)
+      updateContainerPublication(publishTarget.name, publication)
       setPublishTarget(null)
       setPublishDescription('')
       setPublishCoverFile(null)
+      setResponsibilityAck(false)
     } catch (err) {
       setPublishError(err.message)
     } finally {
       setPublishingPodName('')
     }
-  }, [markContainerPublished, publishCoverFile, publishDescription, publishTarget])
+  }, [publishCoverFile, publishDescription, publishTarget, responsibilityAck, updateContainerPublication])
 
   const handleUnpublish = useCallback(async (container) => {
     if (!container?.name) return
@@ -1043,13 +1169,13 @@ export default function DashboardPage() {
     setContainerError('')
     try {
       await unpublishApp(container.name)
-      markContainerPublished(container.name, false)
+      updateContainerPublication(container.name, { is_published: false, review_status: 'unpublished' })
     } catch (err) {
       setContainerError(err.message)
     } finally {
       setPublishingPodName('')
     }
-  }, [markContainerPublished])
+  }, [updateContainerPublication])
 
   const harborConfigured = harborInfo?.configured
   const privateMessage = !harborConfigured
@@ -1160,10 +1286,13 @@ export default function DashboardPage() {
         description={publishDescription}
         coverFile={publishCoverFile}
         error={publishError}
+        reviewSettings={publishReviewSettings}
+        responsibilityAck={responsibilityAck}
         submitting={Boolean(publishingPodName)}
         onClose={handleClosePublishModal}
         onCoverChange={handlePublishCoverChange}
         onDescriptionChange={setPublishDescription}
+        onResponsibilityAckChange={setResponsibilityAck}
         onSubmit={handlePublishSubmit}
       />
     </AppShell>

@@ -5,6 +5,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.deps import (
     get_auth_service,
     get_current_session,
+    is_admin_session,
     get_sso_service,
     get_sso_user_repository,
     get_token_store,
@@ -67,6 +68,7 @@ async def me(
             'email': session.email,
             'department': session.department,
             'emp_id': session.emp_id,
+            'is_admin': is_admin_session(session),
         },
         'auth_provider': session.auth_provider,
         'expires_at': session.expires_at.isoformat(),

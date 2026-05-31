@@ -32,6 +32,16 @@ class PublishedAppItem(BaseModel):
     rating_avg: float = 0
     rating_sum: int = 0
     review_count: int = 0
+    is_published: bool = False
+    review_status: str = 'approved'
+    submitted_at: str | None = None
+    reviewed_at: str | None = None
+    reviewed_by: str | None = None
+    review_note: str | None = None
+    reject_reason: str | None = None
+    responsibility_ack: bool = False
+    responsibility_ack_version: str | None = None
+    responsibility_ack_at: str | None = None
     my_review: AppReviewItem | None = None
     published_at: str | None = None
     updated_at: str | None = None
@@ -53,3 +63,34 @@ class AppReviewListResponse(BaseModel):
     next_offset: int | None = None
     has_more: bool = False
     sort: str = 'desc'
+
+
+class PublicationReviewSettings(BaseModel):
+    review_policy: str
+    responsibility_ack_version: str
+
+
+class PublicationReviewSettingsUpdate(BaseModel):
+    review_policy: str
+    responsibility_ack_version: str | None = Field(default=None, max_length=32)
+
+
+class PublicationStatusItem(BaseModel):
+    pod_name: str
+    is_published: bool = False
+    review_status: str = 'unpublished'
+    submitted_at: str | None = None
+    reviewed_at: str | None = None
+
+
+class PublicationStatusListResponse(BaseModel):
+    statuses: list[PublicationStatusItem]
+
+
+class PublicationReviewListResponse(BaseModel):
+    apps: list[PublishedAppItem]
+
+
+class PublicationReviewActionRequest(BaseModel):
+    review_note: str | None = Field(default=None, max_length=500)
+    reject_reason: str | None = Field(default=None, max_length=500)

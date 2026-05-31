@@ -78,3 +78,15 @@ def get_current_session_with_emp_id(
     if not session.emp_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='当前用户缺少 emp_id，无法访问容器')
     return session
+
+
+def is_admin_session(session: SessionRecord) -> bool:
+    return session.username in set(settings.admin_usernames)
+
+
+def get_current_admin_session(
+    session: SessionRecord = Depends(get_current_session),
+) -> SessionRecord:
+    if not is_admin_session(session):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='需要管理员权限')
+    return session

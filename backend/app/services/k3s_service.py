@@ -274,15 +274,6 @@ class K3SService:
             for pod in pods
             if not (pod.metadata and pod.metadata.deletion_timestamp)
         ]
-        try:
-            published_pod_names = self.publication_repository.get_published_pod_names(
-                [container['name'] for container in containers if container.get('name')]
-            )
-            for container in containers:
-                container['is_published'] = container.get('name') in published_pod_names
-        except Exception as exc:
-            logger.warning('查询容器发布状态失败：%s', exc)
-
         return {
             'namespace': namespace,
             'containers': containers,

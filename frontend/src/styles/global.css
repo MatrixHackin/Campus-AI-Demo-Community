@@ -853,6 +853,10 @@ button {
   border-radius: 999px;
 }
 
+.container-row__action-line--publication {
+  padding-top: 1px;
+}
+
 .container-action-button,
 .container-delete-button {
   min-height: 28px;
@@ -893,6 +897,18 @@ button {
   border-color: rgba(180, 35, 58, 0.16);
   color: var(--danger-text);
   background: rgba(255, 255, 255, 0.68);
+}
+
+.container-publish-button--pending {
+  border-color: rgba(255, 184, 77, 0.28);
+  color: #8a5b10;
+  background: rgba(255, 184, 77, 0.14);
+}
+
+.container-publish-button--rejected {
+  border-color: rgba(47, 125, 246, 0.18);
+  color: var(--brand);
+  background: rgba(47, 125, 246, 0.08);
 }
 
 .container-action-button:hover:not(:disabled) {
@@ -1395,6 +1411,34 @@ button {
   line-height: 1.6;
 }
 
+.publish-acknowledgement {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.publish-acknowledgement input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin-top: 4px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+.publish-acknowledgement input[type="checkbox"]:focus {
+  box-shadow: 0 0 0 4px rgba(47, 125, 246, 0.18);
+}
+
 .webssh-panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1756,6 +1800,143 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 18px;
+}
+
+.admin-review-panel {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 0 auto;
+  display: grid;
+  gap: 18px;
+}
+
+.admin-review-panel__head,
+.admin-review-settings,
+.admin-review-item {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-review-panel__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+}
+
+.admin-review-panel__head h1 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.admin-review-panel__head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.admin-review-settings {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 240px) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 16px;
+}
+
+.admin-review-settings label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.admin-review-settings select,
+.admin-review-settings input {
+  min-height: 40px;
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--text);
+}
+
+.admin-review-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.admin-review-tab {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.admin-review-tab--active {
+  border-color: rgba(37, 99, 235, 0.46);
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
+}
+
+.admin-review-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-review-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px;
+}
+
+.admin-review-item__main {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-review-item__title {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-review-item__title h2 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.admin-review-item__title span {
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-review-item__main p {
+  margin: 0;
+  color: #405269;
+}
+
+.admin-review-item__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.admin-review-item__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .my-app-card {
