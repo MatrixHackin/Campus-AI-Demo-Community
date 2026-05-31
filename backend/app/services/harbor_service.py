@@ -105,9 +105,6 @@ class HarborService:
             base_response['private_message'] = '暂无个人镜像'
         return base_response
 
-    def get_user_private_project(self, email: str | None, include_tags: bool = False) -> dict:
-        return self.get_user_projects(email=email, include_tags=include_tags)
-
     def _harbor_url(self) -> str:
         return self.settings.harbor_url.rstrip('/') + '/'
 

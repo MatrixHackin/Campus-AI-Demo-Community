@@ -95,10 +95,6 @@ export async function getMyContainers() {
   return request('/k3s/containers')
 }
 
-export async function getMyAppsUsage() {
-  return request('/k3s/my-apps/usage')
-}
-
 export async function getContainerUsageTrend(podName) {
   return request(`/k3s/containers/${encodeURIComponent(podName)}/usage-trend`)
 }

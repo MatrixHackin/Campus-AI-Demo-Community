@@ -196,14 +196,14 @@ K3S_NETWORK_POLICY_SSH_GATEWAY_NAMESPACE=campus-ai-system
 K3S_NETWORK_POLICY_SSH_GATEWAY_POD_LABELS=app=ssh-gateway
 K3S_NETWORK_POLICY_INTERNAL_ALLOW_RULES=
 INTERNAL_API_TOKEN=
-SSH_GATEWAY_ENABLED=true
+SSH_GATEWAY_ENABLED=false
 SSH_GATEWAY_HOST=0.0.0.0
 SSH_GATEWAY_PORT=2222
 SSH_GATEWAY_PUBLIC_HOST=10.120.17.138
 SSH_GATEWAY_HOST_KEY_PATH=.run/ssh_gateway_host_key
-SSH_GATEWAY_TARGET_MODE=port_forward
-SSH_GATEWAY_RESOLVER_MODE=local
-SSH_GATEWAY_CONTROL_PLANE_BASE_URL=http://127.0.0.1:8001
+SSH_GATEWAY_TARGET_MODE=service
+SSH_GATEWAY_RESOLVER_MODE=http
+SSH_GATEWAY_CONTROL_PLANE_BASE_URL=http://10.120.17.138:8080
 SSH_GATEWAY_CONTROL_PLANE_INTERNAL_TOKEN=
 SSH_GATEWAY_CONTROL_PLANE_TIMEOUT_SECONDS=5
 WEBSSH_PUBLIC_PATH_PREFIX=/ssh
@@ -299,7 +299,7 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - WebSSH 地址格式：`https://gpunion.hkust-gz.edu.cn/ssh/{app_name}+{ssh_username}`。
 - 第一版原生 SSH 地址格式：`ssh {ssh_username}+{app_name}@10.120.17.138 -p 2222`；如果用户名包含
   `@`、空格等特殊字符，工作台会改用等价的 `ssh -l '{ssh_username}+{app_name}' 10.120.17.138 -p 2222`。
-- 后端默认使用 `.run/ssh_gateway_host_key` 作为固定 SSH Gateway HostKey；请不要删除该文件，否则
+- k3s SSH Gateway 使用由 `.run/ssh_gateway_host_key` 创建的固定 HostKey Secret；请不要删除或随意替换该文件，否则
   原生 SSH、VS Code Remote-SSH 和 Cursor Remote-SSH 客户端会提示服务端 HostKey 变化。
 - 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
   base path，否则页面 HTML 可能能打开但静态资源路径会不正确。

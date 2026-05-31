@@ -40,6 +40,8 @@ async def handle_client(
             pipe(client_reader, target_writer),
             pipe(target_reader, client_writer),
         )
+    except (ConnectionError, TimeoutError, OSError) as exc:
+        logging.info('proxy disconnected peer=%s error=%s', peer, exc)
     finally:
         for writer in (client_writer, target_writer):
             writer.close()

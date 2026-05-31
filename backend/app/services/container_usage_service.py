@@ -57,10 +57,6 @@ class ContainerUsageService:
             'apps': [self._usage_item_from_pod(pod) for pod in pods if pod.metadata and not pod.metadata.deletion_timestamp],
         }
 
-    def collect_pod_by_name(self, *, namespace: str, pod_name: str, final: bool = False) -> dict[str, Any]:
-        pod = self._core().read_namespaced_pod(namespace=namespace, name=pod_name)
-        return self.collect_pod(pod=pod, final=final)
-
     def get_pod_usage_trend(self, *, namespace: str, pod_name: str, minutes: int = 5) -> dict[str, Any]:
         from kubernetes.client.rest import ApiException
 

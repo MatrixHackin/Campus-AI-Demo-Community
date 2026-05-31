@@ -1,25 +1,28 @@
 # Campus AI Demo Community
 
-一个前后端分离的网页端应用示例：
+一个面向开发沙盒申请、SSH/WebSSH 开发和应用发布的前后端分离平台：
 
 - **前端**：React + Vite
 - **后端**：FastAPI
 - **云原生能力**：后端通过 Kubernetes API 申请开发沙盒容器
 
 ## 页面功能
-- 炫酷首页
+- 首页
 - 登录页面
-- 登录后主界面
-- “开发沙盒”按钮申请后端容器
+- 开发沙盒申请和镜像保存
+- SSH / WebSSH 开发连接
+- 应用市场发布、审核和通知
 
 ## 目录结构
 ```text
-backend/   FastAPI 服务
+backend/   FastAPI 控制面、SSH Gateway 镜像源码和数据库脚本
 frontend/  React 前端
+deploy/    k3s、systemd、TCP proxy 和压测配置
 ```
 
 ## 代码导读
-- 系统化阅读建议见：`CODE_GUIDE.md`
+- 后端部署、配置和接口说明见：`backend/README.md`
+- 前端代码导读见：`frontend/FRONTEND_GUIDE.md`
 
 ## 快速启动
 ### 1. 启动后端
@@ -55,6 +58,6 @@ npm run dev
 - `backend/app/services/auth_service.py`
 
 ## Kubernetes 沙盒逻辑位置
-- `backend/app/services/sandbox_service.py`
+- `backend/app/services/k3s_service.py`
 
-沙盒接口直接连接真实 K3s 集群创建 Pod，由 K3s scheduler 自动调度。
+沙盒接口连接真实 K3s 集群创建 Pod，由 K3s scheduler 调度到 `competition=true` 节点。

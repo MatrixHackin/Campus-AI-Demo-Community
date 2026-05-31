@@ -150,29 +150,6 @@ class PublicationRepository:
         finally:
             connection.close()
 
-    def get_published_pod_names(self, pod_names: list[str]) -> set[str]:
-        if not pod_names:
-            return set()
-
-        table_name = self._table_name()
-        placeholders = ','.join(['%s'] * len(pod_names))
-        connection = self._connect()
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f'''
-                    SELECT pod_name
-                    FROM `{table_name}`
-                    WHERE pod_name IN ({placeholders})
-                      AND is_published = 1
-                      AND review_status = 'approved'
-                    ''',
-                    tuple(pod_names),
-                )
-                return {row['pod_name'] for row in cursor.fetchall()}
-        finally:
-            connection.close()
-
     def get_publication_status_by_pod_names(
         self,
         pod_names: list[str],

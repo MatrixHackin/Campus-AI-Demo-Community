@@ -104,8 +104,7 @@ button {
   letter-spacing: -0.01em;
 }
 
-.site-brand__logo,
-.site-brand__mark {
+.site-brand__logo {
   width: 38px;
   height: 38px;
 }
@@ -114,15 +113,6 @@ button {
   display: block;
   flex: 0 0 auto;
   object-fit: contain;
-}
-
-.site-brand__mark {
-  display: grid;
-  place-items: center;
-  border-radius: 13px;
-  color: #ffffff;
-  background: linear-gradient(145deg, var(--brand) 0%, var(--accent) 100%);
-  box-shadow: 0 14px 34px rgba(47, 125, 246, 0.22);
 }
 
 .site-footer {
@@ -143,15 +133,13 @@ button {
   margin: 0;
 }
 
-.site-nav,
-.app-header__actions {
+.site-nav {
   display: flex;
   align-items: center;
   gap: 14px;
 }
 
-.nav-link,
-.text-button {
+.nav-link {
   color: var(--muted);
   background: transparent;
   cursor: pointer;
@@ -159,8 +147,7 @@ button {
   transition: color 0.2s ease;
 }
 
-.nav-link:hover,
-.text-button:hover {
+.nav-link:hover {
   color: var(--brand);
 }
 
@@ -1723,13 +1710,6 @@ button {
   gap: 10px;
 }
 
-.section-heading--split {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
 .section-heading h1 {
   font-size: clamp(2.7rem, 6vw, 5.2rem);
 }
@@ -2200,8 +2180,7 @@ button {
 }
 
 .my-app-card__header p,
-.my-app-card__meta,
-.my-app-card__totals {
+.my-app-card__meta {
   color: var(--muted);
   font-size: 0.82rem;
 }
@@ -2225,68 +2204,6 @@ button {
 .my-app-card__actions {
   display: flex;
   justify-content: flex-end;
-}
-
-.app-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.app-metric {
-  border-radius: 18px;
-  border: 1px solid rgba(47, 125, 246, 0.1);
-  background: rgba(255, 255, 255, 0.58);
-  padding: 12px;
-}
-
-.app-metric__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.app-metric__head strong {
-  color: var(--ink);
-  font-size: 0.92rem;
-}
-
-.app-metric__bar {
-  height: 7px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(47, 125, 246, 0.1);
-  margin-top: 10px;
-}
-
-.app-metric__bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--brand), #70a6ff);
-}
-
-.app-metric small {
-  display: block;
-  margin-top: 8px;
-  color: var(--muted);
-  font-size: 0.76rem;
-}
-
-.my-app-card__totals {
-  display: grid;
-  gap: 5px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(16, 32, 51, 0.08);
-}
-
-.danger-text {
-  color: var(--danger-text);
 }
 
 .usage-trends-panel {

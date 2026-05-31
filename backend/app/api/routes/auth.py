@@ -92,7 +92,7 @@ async def sso_login(
     return RedirectResponse(authorize_url, status_code=status.HTTP_302_FOUND)
 
 
-@browser_router.api_route('/logout', methods=['GET', 'POST'])
+@browser_router.api_route('/logout', methods=['GET', 'POST'], include_in_schema=False)
 async def logout(
     session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
     token_store: TokenStore = Depends(get_token_store),

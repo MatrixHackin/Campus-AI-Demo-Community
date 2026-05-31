@@ -64,11 +64,17 @@
 
 这里专门定义路由。
 
-当前只有 3 个主要页面：
+当前页面：
 
 - `/`：首页
 - `/login`：登录页
 - `/dashboard`：控制台
+- `/community`：应用市场
+- `/my-apps`：我的应用
+- `/manual`：开发手册
+- `/admin/publication-review`：管理员发布审核
+- `/admin/notifications`：管理员系统通知
+- `/ssh/:target`：WebSSH 终端
 
 还有一个兜底规则：
 
@@ -76,7 +82,7 @@
 
 最关键的一点是：
 
-`/dashboard` 外面包了一层 `ProtectedRoute`
+除首页和登录页外，业务页面外面都包了一层 `ProtectedRoute`
 
 意思是：
 

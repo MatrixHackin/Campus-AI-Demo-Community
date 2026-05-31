@@ -18,7 +18,7 @@ token_store = TokenStore(ttl_hours=settings.token_ttl_hours)
 auth_service = AuthService(settings=settings, token_store=token_store)
 harbor_service = HarborService(settings=settings)
 k3s_service = K3SService(settings=settings)
-container_usage_service = ContainerUsageService(settings=settings)
+container_usage_service = k3s_service.container_usage_service
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
 notification_event_bus = NotificationEventBus()
 notification_service = NotificationService(settings=settings, event_bus=notification_event_bus)
