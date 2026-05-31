@@ -1746,7 +1746,61 @@ button {
 
 .market-panel__toolbar {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.market-sort-control {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.market-sort-control > span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.market-sort-control__options {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 82, 143, 0.12);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.market-sort-button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #405269;
+  background: transparent;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 780;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.market-sort-button:hover {
+  color: var(--ink);
+  background: rgba(47, 125, 246, 0.08);
+}
+
+.market-sort-button--active {
+  color: #173b78;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(22, 46, 79, 0.1);
 }
 
 .market-app-grid {
@@ -3028,6 +3082,26 @@ button {
   .market-panel {
     padding: 14px;
     border-radius: 26px;
+  }
+
+  .market-panel__toolbar {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .market-sort-control {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .market-sort-control__options {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .market-sort-button {
+    flex: 0 0 auto;
   }
 
   .market-app-grid {

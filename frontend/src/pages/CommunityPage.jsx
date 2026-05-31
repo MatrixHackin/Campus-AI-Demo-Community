@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   deleteAppReview,
@@ -13,6 +13,32 @@ import AppShell from '../components/AppShell'
 const REVIEW_COMMENT_MAX_LENGTH = 240
 const SHARE_POSTER_WIDTH = 1080
 const SHARE_POSTER_HEIGHT = 1440
+const MARKET_SORT_OPTIONS = [
+  { key: 'visit_count', label: '访问量' },
+  { key: 'like_count', label: '点赞数' },
+  { key: 'rating_avg', label: '评分' }
+]
+
+function appSortValue(app, key) {
+  return Number(app?.[key] || 0)
+}
+
+function sortMarketApps(apps, sortKey) {
+  return [...apps].sort((left, right) => {
+    const primary = appSortValue(right, sortKey) - appSortValue(left, sortKey)
+    if (primary !== 0) return primary
+
+    if (sortKey === 'rating_avg') {
+      const reviewTieBreak = appSortValue(right, 'review_count') - appSortValue(left, 'review_count')
+      if (reviewTieBreak !== 0) return reviewTieBreak
+    }
+
+    const visitTieBreak = appSortValue(right, 'visit_count') - appSortValue(left, 'visit_count')
+    if (visitTieBreak !== 0) return visitTieBreak
+
+    return Number(right?.id || 0) - Number(left?.id || 0)
+  })
+}
 
 function getAbsoluteUrl(value) {
   if (!value || typeof window === 'undefined') return ''
@@ -579,6 +605,8 @@ export default function CommunityPage() {
   const [reviewNextOffset, setReviewNextOffset] = useState(null)
   const [reviewHasMore, setReviewHasMore] = useState(false)
   const [shareModalApp, setShareModalApp] = useState(null)
+  const [marketSortKey, setMarketSortKey] = useState('visit_count')
+  const sortedApps = useMemo(() => sortMarketApps(apps, marketSortKey), [apps, marketSortKey])
 
   const updateAppReviewSummary = useCallback((appId, reviewPayload) => {
     setApps((prev) => prev.map((item) => (
@@ -802,6 +830,22 @@ export default function CommunityPage() {
     <AppShell>
       <section className="market-panel" aria-label="应用市场">
         <div className="market-panel__toolbar">
+          <div className="market-sort-control" role="group" aria-label="应用排序方式">
+            <span>排序</span>
+            <div className="market-sort-control__options">
+              {MARKET_SORT_OPTIONS.map((option) => (
+                <button
+                  key={option.key}
+                  className={`market-sort-button${marketSortKey === option.key ? ' market-sort-button--active' : ''}`}
+                  type="button"
+                  onClick={() => setMarketSortKey(option.key)}
+                  aria-pressed={marketSortKey === option.key}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button className="btn btn--primary" type="button" onClick={loadApps} disabled={loading}>
             {loading ? '刷新中…' : '刷新'}
           </button>
@@ -813,7 +857,7 @@ export default function CommunityPage() {
 
         {!loading && !error && apps.length > 0 ? (
           <div className="market-app-grid">
-            {apps.map((app) => (
+            {sortedApps.map((app) => (
               <article className="market-app-card" key={app.id}>
                 <div className="market-app-card__cover">
                   <AppCover app={app} />
