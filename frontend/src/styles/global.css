@@ -2863,12 +2863,79 @@ button {
 
 @media (max-width: 680px) {
   .site-shell {
-    padding: 18px;
+    padding: 14px;
   }
 
   .site-footer {
-    bottom: 8px;
-    width: calc(100% - 36px);
+    position: relative;
+    left: auto;
+    bottom: auto;
+    width: 100%;
+    transform: none;
+    padding: 2px 0 0;
+    font-size: 0.74rem;
+    line-height: 1.35;
+  }
+
+  .app-nav {
+    width: 100%;
+    min-height: auto;
+    gap: 12px;
+    padding: 12px;
+    border-radius: 22px;
+  }
+
+  .app-nav .site-brand {
+    justify-self: start;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 0.95rem;
+  }
+
+  .app-nav__links {
+    justify-self: stretch;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 4px;
+    border-radius: 18px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-nav__links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-nav__link {
+    flex: 0 0 auto;
+    min-height: 36px;
+    padding: 0 9px;
+    font-size: 0.8rem;
+  }
+
+  .app-nav__account {
+    justify-self: stretch;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .app-nav__account .btn {
+    min-height: 38px;
+    padding: 0 16px;
+  }
+
+  .user-name {
+    max-width: none;
+    text-align: center;
+  }
+
+  .app-blank-main {
+    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
+    padding: 24px 0 28px;
+    overflow-x: clip;
   }
 
   .modal-backdrop {
@@ -2918,6 +2985,29 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .admin-review-panel,
+  .admin-notification-panel {
+    width: 100%;
+  }
+
+  .admin-review-panel__head {
+    display: grid;
+    gap: 12px;
+  }
+
+  .admin-review-panel__head .btn {
+    justify-self: start;
+  }
+
+  .admin-review-settings,
+  .admin-review-item {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-review-item__actions {
+    justify-content: flex-start;
+  }
+
   .gpu-resource-grid {
     grid-template-columns: 1fr;
   }
@@ -2936,7 +3026,8 @@ button {
   }
 
   .market-panel {
-    padding: 18px;
+    padding: 14px;
+    border-radius: 26px;
   }
 
   .market-app-grid {
@@ -2954,10 +3045,24 @@ button {
 
   .market-app-card__actions {
     justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .market-app-card__body {
+    padding: 16px;
+  }
+
+  .market-app-card__actions .btn {
+    min-height: 38px;
+    padding: 0 9px;
+    font-size: 0.78rem;
   }
 
   .market-like-button {
     flex: 0 0 auto;
+    min-height: 38px;
+    padding: 0 9px;
+    font-size: 0.8rem;
   }
 
   .share-modal-layout {
@@ -3003,8 +3108,19 @@ button {
     margin-right: 0;
   }
 
+  .dashboard-panel-heading {
+    flex-wrap: wrap;
+  }
+
+  .container-request-panel {
+    min-height: auto;
+    padding: 16px;
+    border-radius: 26px;
+  }
+
   .container-row {
     grid-template-columns: 34px minmax(0, 1fr);
+    align-items: start;
   }
 
   .container-row__actions {
@@ -3018,12 +3134,46 @@ button {
   }
 
   .site-header {
-    align-items: flex-start;
-    flex-direction: column;
+    width: 100%;
+    align-items: center;
+    flex-direction: row;
+    gap: 14px;
   }
 
-  .app-nav__links {
-    grid-template-columns: 1fr;
+  .manual-layout,
+  .manual-toc,
+  .manual-panel {
+    min-width: 0;
+  }
+
+  .manual-layout {
+    gap: 16px;
+  }
+
+  .manual-toc {
+    padding: 16px;
+    border-radius: 22px;
+  }
+
+  .manual-panel {
+    padding: 20px;
+    border-radius: 26px;
+  }
+
+  .manual-toc a {
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body {
+    font-size: 0.94rem;
+  }
+
+  .markdown-body h1 {
+    font-size: 2rem;
+  }
+
+  .markdown-body h2 {
+    font-size: 1.45rem;
   }
 
   .landing-main {

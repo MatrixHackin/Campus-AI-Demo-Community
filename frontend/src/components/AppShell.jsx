@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   dismissNotification,
   getNotificationEventUrl,
@@ -119,6 +119,7 @@ function NotificationDrawer({
 
 export default function AppShell({ children }) {
   const { user, logout } = useAuth()
+  const location = useLocation()
   const displayName = user?.display_name || user?.username || '用户'
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [notifications, setNotifications] = useState([])
@@ -126,6 +127,7 @@ export default function AppShell({ children }) {
   const [notificationsError, setNotificationsError] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
   const notificationOpenRef = useRef(false)
+  const navLinksRef = useRef(null)
 
   useEffect(() => {
     notificationOpenRef.current = notificationOpen
@@ -204,6 +206,11 @@ export default function AppShell({ children }) {
     }
   }, [loadNotifications, loadUnreadCount, user?.username])
 
+  useEffect(() => {
+    const activeLink = navLinksRef.current?.querySelector('.app-nav__link--active')
+    activeLink?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [location.pathname, user?.is_admin])
+
   const handleOpenNotifications = useCallback(() => {
     setNotificationOpen(true)
     loadNotifications()
@@ -249,7 +256,7 @@ export default function AppShell({ children }) {
           <span>Campus AI Community</span>
         </div>
 
-        <nav className="app-nav__links" aria-label="应用导航">
+        <nav className="app-nav__links" aria-label="应用导航" ref={navLinksRef}>
           {[...navItems, ...(user?.is_admin ? adminNavItems : [])].map((item) => (
             <NavLink
               key={item.to}
