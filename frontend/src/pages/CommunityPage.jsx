@@ -19,13 +19,17 @@ function getAbsoluteUrl(value) {
   return new URL(value, window.location.origin).toString()
 }
 
+function getShareTargetUrl(app) {
+  return app?.share_url || app?.app_url || ''
+}
+
 function getShareText(app) {
   const publisher = app.owner_display_name || app.owner_username || '用户'
   return [
     `推荐应用：${app.app_name}`,
     app.app_description || '欢迎体验这个应用。',
     `发布者：${publisher}`,
-    `访问地址：${getAbsoluteUrl(app.app_url)}`
+    `访问地址：${getAbsoluteUrl(getShareTargetUrl(app))}`
   ].join('\n')
 }
 
@@ -359,7 +363,8 @@ function ShareModal({ app, onClose }) {
   const [feedback, setFeedback] = useState('')
 
   useEffect(() => {
-    if (!app?.app_url) return undefined
+    const targetUrl = getShareTargetUrl(app)
+    if (!targetUrl) return undefined
     let active = true
     setQrDataUrl('')
     setQrError('')
@@ -371,7 +376,7 @@ function ShareModal({ app, onClose }) {
     import('qrcode')
       .then((module) => {
         const qrCode = module.default || module
-        return qrCode.toDataURL(getAbsoluteUrl(app.app_url), {
+        return qrCode.toDataURL(getAbsoluteUrl(targetUrl), {
           width: 260,
           margin: 1,
           color: {
@@ -419,7 +424,7 @@ function ShareModal({ app, onClose }) {
 
   if (!app || typeof document === 'undefined') return null
 
-  const shareUrl = getAbsoluteUrl(app.app_url)
+  const shareUrl = getAbsoluteUrl(getShareTargetUrl(app))
   const shareText = getShareText(app)
   const canNativeShare = typeof navigator.share === 'function'
   const canCopyImage = Boolean(navigator.clipboard?.write && window.ClipboardItem)

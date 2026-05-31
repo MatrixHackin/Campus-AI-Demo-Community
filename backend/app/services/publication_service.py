@@ -4,9 +4,11 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
+from urllib.parse import urlparse
 
 from app.core.config import Settings
+from app.services.app_page_renderer import render_share_page, render_unavailable_app_page
 from app.services.container_repository import ContainerRepository
 from app.services.notification_service import NotificationService
 from app.services.platform_settings_repository import PlatformSettingsRepository
@@ -23,12 +25,18 @@ logger = logging.getLogger(__name__)
 
 
 class PublicationService:
-    def __init__(self, settings: Settings, notification_service: NotificationService | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        notification_service: NotificationService | None = None,
+        k3s_service: Any | None = None,
+    ) -> None:
         self.settings = settings
         self.container_repository = ContainerRepository(settings)
         self.repository = PublicationRepository(settings)
         self.platform_settings = PlatformSettingsRepository(settings)
         self.notification_service = notification_service
+        self.k3s_service = k3s_service
 
     def list_public_apps(self, session: SessionRecord | None = None) -> dict:
         return {
@@ -108,6 +116,7 @@ class PublicationService:
 
         if cover_url and old_cover_url and cover_url != old_cover_url:
             self.delete_cover_by_url(old_cover_url)
+        self._sync_app_access_control(row, fail_closed=False)
         return self._serialize(row)
 
     def get_review_policy(self) -> str:
@@ -185,6 +194,7 @@ class PublicationService:
         )
         if not row:
             raise FileNotFoundError('未找到待审核应用')
+        self._sync_app_access_control(row, fail_closed=False)
         return self._serialize(row)
 
     def reject_publication(
@@ -201,6 +211,10 @@ class PublicationService:
             raise ValueError('请填写拒绝原因')
         if len(reason) > 500:
             raise ValueError('拒绝原因最多 500 个字符')
+        current = self.repository.get_by_id_any(publication_id)
+        if not current:
+            raise FileNotFoundError('未找到待审核应用')
+        self._ensure_app_private_before_status_change(current)
         row = self.repository.reject_publication(
             publication_id,
             reviewed_by=session.username,
@@ -219,6 +233,7 @@ class PublicationService:
             return None
         if row.get('owner_username') != session.username:
             raise PermissionError('无权取消发布该应用')
+        self._ensure_app_private_before_status_change(row)
         old_cover_url = row.get('cover_url')
         deleted = self.repository.delete_by_pod_name(pod_name, delete_likes=False)
         if deleted and old_cover_url:
@@ -353,6 +368,89 @@ class PublicationService:
     def _user_key(session: SessionRecord) -> str:
         return session.user_id or f'{session.auth_provider}:{session.username}'
 
+    def get_share_page(self, publication_id: int) -> tuple[int, str]:
+        if publication_id <= 0:
+            return 404, render_unavailable_app_page(
+                title='应用不存在或不可访问',
+                message='该分享链接无效或应用记录不存在。',
+                home_url='/community',
+            )
+
+        row = self.repository.get_by_id_any(publication_id)
+        if not row:
+            return 404, render_unavailable_app_page(
+                title='应用不存在或不可访问',
+                message='该分享链接无效或应用记录不存在。',
+                home_url='/community',
+            )
+        if not self._is_public(row):
+            return 410, render_unavailable_app_page(
+                title='应用已下架',
+                message='该应用当前不可访问。',
+                app_name=row.get('app_name'),
+                home_url='/community',
+            )
+
+        app = self._serialize(row)
+        return 200, render_share_page(
+            app_name=app['app_name'],
+            description=app.get('app_description') or '欢迎体验这个应用。',
+            publisher=app.get('owner_display_name') or app.get('owner_username') or '用户',
+            app_url=app['app_url'],
+            share_url=app['share_url'],
+            cover_url=self._absolute_url(app.get('cover_url')),
+        )
+
+    def share_url_for_publication_id(self, publication_id: int) -> str:
+        return f'{self._platform_public_base_url()}/share/apps/{publication_id}'
+
+    def _platform_public_base_url(self) -> str:
+        apps_base_url = self.settings.k3s_apps_public_base_url.strip().rstrip('/')
+        path_prefix = self.settings.k3s_apps_path_prefix.strip().rstrip('/') or '/apps'
+        if apps_base_url.endswith(path_prefix):
+            return apps_base_url[: -len(path_prefix)].rstrip('/') or apps_base_url
+        parsed = urlparse(apps_base_url)
+        if parsed.scheme and parsed.netloc:
+            return f'{parsed.scheme}://{parsed.netloc}'
+        return apps_base_url
+
+    def _absolute_url(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.netloc:
+            return value
+        return f'{self._platform_public_base_url()}/{value.lstrip("/")}'
+
+    @staticmethod
+    def _is_public(row: dict) -> bool:
+        return bool(row.get('is_published')) and row.get('review_status') == 'approved'
+
+    def _ensure_app_private_before_status_change(self, row: dict) -> None:
+        app_name = row.get('app_name')
+        if not app_name or not self.k3s_service:
+            return
+        try:
+            self.k3s_service.set_app_access_control(app_name, enabled=True)
+        except FileNotFoundError:
+            logger.info('应用 %s 运行入口不存在，跳过访问控制收紧', app_name)
+        except Exception as exc:
+            logger.warning('应用 %s 收紧访问控制失败：%s', app_name, exc)
+            raise RuntimeError(f'应用访问控制更新失败：{exc}') from exc
+
+    def _sync_app_access_control(self, row: dict, *, fail_closed: bool) -> None:
+        app_name = row.get('app_name')
+        if not app_name or not self.k3s_service:
+            return
+        try:
+            self.k3s_service.set_app_access_control(app_name, enabled=not self._is_public(row))
+        except FileNotFoundError:
+            logger.info('应用 %s 运行入口不存在，跳过访问控制同步', app_name)
+        except Exception as exc:
+            if fail_closed:
+                raise RuntimeError(f'应用访问控制更新失败：{exc}') from exc
+            logger.warning('应用 %s 访问控制同步失败，后续 reconcile 可修复：%s', app_name, exc)
+
     def _notify_review_rejected(self, publication: dict, reject_reason: str, session: SessionRecord) -> None:
         if not self.notification_service:
             return
@@ -379,8 +477,7 @@ class PublicationService:
             return normalized
         raise ValueError('审核策略只能是不审核或都要审核')
 
-    @staticmethod
-    def _serialize(row: dict) -> dict:
+    def _serialize(self, row: dict) -> dict:
         my_review = None
         if row.get('my_review_id'):
             my_review = {
@@ -401,6 +498,7 @@ class PublicationService:
             'app_description': row.get('app_description'),
             'cover_url': row.get('cover_url'),
             'app_url': row['app_url'],
+            'share_url': self.share_url_for_publication_id(int(row['id'])),
             'owner_username': row['owner_username'],
             'owner_display_name': row.get('owner_display_name'),
             'visit_count': row.get('visit_count') or 0,

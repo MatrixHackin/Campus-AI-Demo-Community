@@ -24,6 +24,7 @@ class PublishedAppItem(BaseModel):
     app_description: str | None = None
     cover_url: str | None = None
     app_url: str
+    share_url: str | None = None
     owner_username: str
     owner_display_name: str | None = None
     visit_count: int = 0

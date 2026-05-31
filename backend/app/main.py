@@ -10,6 +10,7 @@ from app.api.routes.harbor import router as harbor_router
 from app.api.routes.internal import router as internal_router
 from app.api.routes.k3s import router as k3s_router
 from app.api.routes.notifications import router as notifications_router
+from app.api.routes.share import router as share_router
 from app.api.routes.ssh import router as ssh_router
 from fastapi.staticfiles import StaticFiles
 
@@ -46,6 +47,7 @@ def create_application() -> FastAPI:
     application.include_router(notifications_router, prefix='/api/v1')
     application.include_router(ssh_router, prefix='/api/v1')
     application.include_router(internal_router)
+    application.include_router(share_router)
     application.include_router(auth_browser_router)
     application.include_router(callback_router)
     application.mount('/api/static', StaticFiles(directory='static', check_dir=False), name='api-static')

@@ -179,6 +179,9 @@ K3S_DEVBOX_DNS_NAMESERVERS=10.90.63.2,10.90.63.3,8.8.8.8
 K3S_APPS_HOST=gpunion.hkust-gz.edu.cn
 K3S_APPS_PATH_PREFIX=/apps
 K3S_APPS_PUBLIC_BASE_URL=https://gpunion.hkust-gz.edu.cn/apps
+APP_ACCESS_CONTROL_ENABLED=false
+APP_ACCESS_AUTH_URL=http://10.120.17.138:8080/internal/app-access/authorize
+APP_ACCESS_AUTH_MIDDLEWARE_NAME=campus-ai-app-access-auth
 K3S_USER_WORKSPACE_ENABLED=true
 K3S_USER_WORKSPACE_PVC_NAME=user-workspace
 K3S_USER_WORKSPACE_STORAGE_CLASS=longhorn
@@ -265,6 +268,9 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - 申请容器时会先确认 namespace 存在，不存在则创建，然后创建一个默认 devbox Pod、一个
   Web ClusterIP Service、一个 SSH ClusterIP Service、一个 Traefik Ingress，并将容器内 3000 端口应用暴露为
   `https://gpunion.hkust-gz.edu.cn/apps/{app_name}`。
+- 如果 `APP_ACCESS_CONTROL_ENABLED=true`，未发布、审核中、被拒绝或已取消发布的应用 Ingress 会挂载
+  Traefik ForwardAuth Middleware：应用开发者和管理员仍可访问 `/apps/{app_name}`，其他用户会看到平台返回的
+  “应用已下架”；审核通过并发布后会移除该 Middleware，让应用流量直接进入对应 Service。
 - 用户首次申请开发沙盒时，后端会在该用户 namespace 下懒创建一个用户级 Longhorn PVC
   `user-workspace`，默认 `64Gi / ReadWriteMany / storageClassName=longhorn`；后续同一用户的开发沙盒
   会复用该 PVC，并挂载到容器内 `/mydata`。删除单个沙盒不会删除该用户级 PVC。

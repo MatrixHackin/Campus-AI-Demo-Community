@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
     k3s_apps_path_prefix: str = '/apps'
     k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'
+    app_access_control_enabled: bool = False
+    app_access_auth_url: str = 'http://10.120.17.138:8080/internal/app-access/authorize'
+    app_access_auth_middleware_name: str = 'campus-ai-app-access-auth'
     k3s_user_workspace_enabled: bool = True
     k3s_user_workspace_pvc_name: str = 'user-workspace'
     k3s_user_workspace_storage_class: str = 'longhorn'
@@ -231,6 +234,7 @@ class Settings(BaseSettings):
     @field_validator(
         'k3s_apps_path_prefix',
         'k3s_apps_public_base_url',
+        'app_access_auth_url',
         'webssh_public_path_prefix',
         'published_cover_public_prefix',
         'ssh_gateway_control_plane_base_url',

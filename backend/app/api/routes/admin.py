@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_current_admin_session, get_publication_service
+from app.api.deps import get_current_admin_session, get_k3s_service, get_publication_service
 from app.schemas.community import (
     PublicationReviewActionRequest,
     PublicationReviewListResponse,
@@ -10,6 +10,7 @@ from app.schemas.community import (
     PublishedAppItem,
 )
 from app.services.publication_service import PublicationService
+from app.services.k3s_service import K3SService
 from app.services.token_store import SessionRecord
 
 router = APIRouter(prefix='/admin/publication', tags=['admin-publication'])
@@ -22,6 +23,17 @@ async def get_publication_review_settings(
 ):
     try:
         return await run_in_threadpool(publication_service.get_review_settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post('/access-control/reconcile')
+async def reconcile_publication_access_control(
+    _current_session: SessionRecord = Depends(get_current_admin_session),
+    k3s_service: K3SService = Depends(get_k3s_service),
+):
+    try:
+        return await run_in_threadpool(k3s_service.reconcile_app_access_controls)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 

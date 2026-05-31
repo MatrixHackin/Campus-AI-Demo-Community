@@ -9,7 +9,7 @@ import shlex
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from app.core.config import Settings
 from app.services.container_repository import ContainerRepository
@@ -49,6 +49,7 @@ class K3SService:
         self._core_v1 = None
         self._networking_v1 = None
         self._batch_v1 = None
+        self._custom_objects = None
 
     def namespace_for_emp_id(self, emp_id: str) -> str:
         namespace = re.sub(r'[^a-z0-9-]+', '-', emp_id.strip().lower()).strip('-')
@@ -205,9 +206,15 @@ class K3SService:
                 namespace=namespace,
                 body=self._ssh_service_body(normalized_app_name),
             )
+            if self.settings.app_access_control_enabled:
+                self._ensure_app_access_auth_middleware(namespace)
             self._networking().create_namespaced_ingress(
                 namespace=namespace,
-                body=self._app_ingress_body(normalized_app_name),
+                body=self._app_ingress_body(
+                    normalized_app_name,
+                    namespace=namespace,
+                    access_control_enabled=self.settings.app_access_control_enabled,
+                ),
             )
         except self._api_exception_class() as exc:
             self._rollback_app_creation(namespace, pod_name, normalized_app_name)
@@ -553,6 +560,112 @@ class K3SService:
             'port': 22,
         }
 
+    def authorize_app_http_access(self, request_uri: str | None, session: Any | None = None) -> dict[str, Any]:
+        app_name = self._app_name_from_request_uri(request_uri)
+        if not app_name:
+            return {
+                'allowed': False,
+                'status_code': 404,
+                'title': '应用不存在或不可访问',
+                'message': '该应用链接无效或应用记录不存在。',
+                'app_name': None,
+            }
+
+        record = self.container_repository.get_container_record_by_app_name(app_name=app_name)
+        if not record:
+            return {
+                'allowed': False,
+                'status_code': 404,
+                'title': '应用不存在或不可访问',
+                'message': '该应用链接无效或应用记录不存在。',
+                'app_name': app_name,
+            }
+
+        publication = self.publication_repository.get_by_app_name(app_name)
+        if self._is_public_publication(publication):
+            return {'allowed': True, 'app_name': app_name}
+
+        username = session.username if session else None
+        if username and (username == record.get('username') or username in set(self.settings.admin_usernames)):
+            return {'allowed': True, 'app_name': app_name}
+
+        return {
+            'allowed': False,
+            'status_code': 410,
+            'title': '应用已下架',
+            'message': '该应用当前不可访问。',
+            'app_name': app_name,
+        }
+
+    def set_app_access_control(self, app_name: str, *, enabled: bool) -> bool:
+        if not self.settings.app_access_control_enabled:
+            return False
+
+        normalized_app_name = self.normalize_app_name(app_name)
+        record = self.container_repository.get_container_record_by_app_name(app_name=normalized_app_name)
+        if not record or not record.get('namespace'):
+            raise FileNotFoundError('未找到应用对应的容器记录')
+
+        namespace = record['namespace']
+        if enabled:
+            self._ensure_app_access_auth_middleware(namespace)
+        self._patch_app_ingress_access_control(
+            namespace=namespace,
+            app_name=normalized_app_name,
+            enabled=enabled,
+        )
+        return True
+
+    def reconcile_app_access_controls(self) -> dict[str, Any]:
+        if not self.settings.app_access_control_enabled:
+            return {
+                'enabled': False,
+                'updated': 0,
+                'skipped': 0,
+                'errors': [],
+            }
+        label_selector = 'app.kubernetes.io/managed-by=campus-ai'
+        items = self._networking().list_ingress_for_all_namespaces(label_selector=label_selector).items
+        updated = 0
+        skipped = 0
+        errors: list[str] = []
+        for ingress in items:
+            labels = ingress.metadata.labels if ingress.metadata and ingress.metadata.labels else {}
+            app_name = labels.get('campus-ai/app-name')
+            if not app_name:
+                skipped += 1
+                continue
+            try:
+                publication = self.publication_repository.get_by_app_name(app_name)
+                self.set_app_access_control(app_name, enabled=not self._is_public_publication(publication))
+                updated += 1
+            except Exception as exc:
+                errors.append(f'{app_name}: {exc}')
+        return {
+            'updated': updated,
+            'skipped': skipped,
+            'errors': errors,
+        }
+
+    def _app_name_from_request_uri(self, request_uri: str | None) -> str | None:
+        if not request_uri:
+            return None
+        path = unquote(urlparse(request_uri).path or '')
+        prefix = self.settings.k3s_apps_path_prefix.strip().rstrip('/') or '/apps'
+        if not path.startswith(f'{prefix}/'):
+            return None
+        candidate = path[len(prefix) + 1:].split('/', 1)[0]
+        if not candidate:
+            return None
+        try:
+            return self.normalize_app_name(candidate)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _is_public_publication(publication: dict | None) -> bool:
+        return bool(publication and publication.get('is_published') and publication.get('review_status') == 'approved')
+
     def _ensure_user_namespace_or_raise(self, emp_id: str | None) -> str:
         if not emp_id:
             raise RuntimeError('当前用户缺少 emp_id，无法创建 namespace')
@@ -617,6 +730,102 @@ class K3SService:
             self._core()
             self._batch_v1 = client.BatchV1Api()
         return self._batch_v1
+
+    def _custom(self):
+        if self._custom_objects is None:
+            from kubernetes import client
+
+            self._core()
+            self._custom_objects = client.CustomObjectsApi()
+        return self._custom_objects
+
+    def _app_access_auth_address(self) -> str:
+        address = self.settings.app_access_auth_url.strip()
+        if not address:
+            raise RuntimeError('应用访问鉴权地址未配置')
+        token = self.settings.internal_api_token.strip()
+        if not token:
+            raise RuntimeError('内部接口令牌未配置，无法启用应用访问控制')
+        parsed = urlparse(address)
+        if 'token=' in parsed.query:
+            return address
+        return f'{address.rstrip("/")}/{quote(token, safe="")}'
+
+    def _app_access_middleware_name(self) -> str:
+        name = self.settings.app_access_auth_middleware_name.strip() or 'campus-ai-app-access-auth'
+        if not K8S_DNS_LABEL_PATTERN.fullmatch(name):
+            raise RuntimeError('应用访问控制 Middleware 名称不合法')
+        return name
+
+    def _app_access_middleware_ref(self, namespace: str) -> str:
+        return f'{namespace}-{self._app_access_middleware_name()}@kubernetescrd'
+
+    def _ensure_app_access_auth_middleware(self, namespace: str) -> None:
+        name = self._app_access_middleware_name()
+        body = {
+            'apiVersion': 'traefik.io/v1alpha1',
+            'kind': 'Middleware',
+            'metadata': {
+                'name': name,
+                'namespace': namespace,
+                'labels': {
+                    'app.kubernetes.io/managed-by': 'campus-ai',
+                    'campus-ai/app-access-control': 'true',
+                },
+            },
+            'spec': {
+                'forwardAuth': {
+                    'address': self._app_access_auth_address(),
+                    'trustForwardHeader': False,
+                },
+            },
+        }
+        api = self._custom()
+        try:
+            api.create_namespaced_custom_object(
+                group='traefik.io',
+                version='v1alpha1',
+                namespace=namespace,
+                plural='middlewares',
+                body=body,
+            )
+        except self._api_exception_class() as exc:
+            if exc.status != 409:
+                raise RuntimeError(f'创建 Traefik Middleware 失败：{exc.reason or exc.status}') from exc
+            api.patch_namespaced_custom_object(
+                group='traefik.io',
+                version='v1alpha1',
+                namespace=namespace,
+                plural='middlewares',
+                name=name,
+                body=body,
+            )
+
+    def _patch_app_ingress_access_control(self, *, namespace: str, app_name: str, enabled: bool) -> None:
+        annotation_key = 'traefik.ingress.kubernetes.io/router.middlewares'
+        middleware_ref = self._app_access_middleware_ref(namespace)
+        try:
+            ingress = self._networking().read_namespaced_ingress(name=app_name, namespace=namespace)
+        except self._api_exception_class() as exc:
+            if exc.status == 404:
+                raise FileNotFoundError('未找到应用 Ingress') from exc
+            raise RuntimeError(f'查询应用 Ingress 失败：{exc.reason or exc.status}') from exc
+
+        annotations = ingress.metadata.annotations if ingress.metadata and ingress.metadata.annotations else {}
+        refs = [
+            value.strip()
+            for value in (annotations.get(annotation_key) or '').split(',')
+            if value.strip() and value.strip() != middleware_ref
+        ]
+        if enabled:
+            refs.append(middleware_ref)
+
+        annotation_value = ','.join(refs) if refs else None
+        patch = {'metadata': {'annotations': {annotation_key: annotation_value}}}
+        try:
+            self._networking().patch_namespaced_ingress(name=app_name, namespace=namespace, body=patch)
+        except self._api_exception_class() as exc:
+            raise RuntimeError(f'更新应用 Ingress 访问控制失败：{exc.reason or exc.status}') from exc
 
     @staticmethod
     def _namespace_body(namespace: str, emp_id: str | None = None):
@@ -1567,13 +1776,19 @@ class K3SService:
             ),
         )
 
-    def _app_ingress_body(self, app_name: str):
+    def _app_ingress_body(self, app_name: str, *, namespace: str, access_control_enabled: bool):
         from kubernetes import client
 
         path = f'{self.settings.k3s_apps_path_prefix}/{app_name}'
+        annotations = None
+        if access_control_enabled:
+            annotations = {
+                'traefik.ingress.kubernetes.io/router.middlewares': self._app_access_middleware_ref(namespace),
+            }
         return client.V1Ingress(
             metadata=client.V1ObjectMeta(
                 name=app_name,
+                annotations=annotations,
                 labels={
                     'app.kubernetes.io/managed-by': 'campus-ai',
                     'campus-ai/app-name': app_name,

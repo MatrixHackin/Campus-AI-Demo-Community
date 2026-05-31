@@ -150,6 +150,33 @@ class PublicationRepository:
         finally:
             connection.close()
 
+    def get_by_app_name(self, app_name: str) -> dict | None:
+        table_name = self._table_name()
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f'''
+                    SELECT
+                      {self._select_columns_without_prefix()},
+                      0 AS is_liked,
+                      NULL AS my_review_id,
+                      NULL AS my_review_username,
+                      NULL AS my_review_display_name,
+                      NULL AS my_review_rating,
+                      NULL AS my_review_comment,
+                      NULL AS my_review_created_at,
+                      NULL AS my_review_updated_at
+                    FROM `{table_name}`
+                    WHERE app_name = %s
+                    LIMIT 1
+                    ''',
+                    (app_name,),
+                )
+                return cursor.fetchone()
+        finally:
+            connection.close()
+
     def get_publication_status_by_pod_names(
         self,
         pod_names: list[str],

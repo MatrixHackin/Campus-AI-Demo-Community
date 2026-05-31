@@ -22,7 +22,7 @@ container_usage_service = k3s_service.container_usage_service
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
 notification_event_bus = NotificationEventBus()
 notification_service = NotificationService(settings=settings, event_bus=notification_event_bus)
-publication_service = PublicationService(settings=settings, notification_service=notification_service)
+publication_service = PublicationService(settings=settings, notification_service=notification_service, k3s_service=k3s_service)
 sso_service = SSOService(settings=settings)
 sso_user_repository = SSOUserRepository(settings=settings)
 
