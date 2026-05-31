@@ -181,6 +181,12 @@ button {
   box-shadow: none;
 }
 
+.btn--disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  pointer-events: none;
+}
+
 .btn--primary {
   color: #ffffff;
   background: linear-gradient(135deg, var(--brand-strong), var(--accent));
@@ -977,6 +983,11 @@ button {
   z-index: 120;
   align-items: center;
   overflow: hidden;
+}
+
+.modal-backdrop--share {
+  z-index: 120;
+  align-items: center;
 }
 
 .modal-backdrop--dashboard {
@@ -1862,8 +1873,14 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  gap: 7px;
+}
+
+.market-app-card__actions .btn {
+  min-height: 40px;
+  padding: 0 12px;
+  font-size: 0.84rem;
 }
 
 .market-app-card__meta {
@@ -1881,18 +1898,18 @@ button {
 }
 
 .market-like-button {
-  min-height: 42px;
+  min-height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   border-radius: 999px;
-  padding: 0 14px;
+  padding: 0 11px;
   color: #6b7280;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(16, 32, 51, 0.1);
   cursor: pointer;
-  font-size: 0.92rem;
+  font-size: 0.86rem;
   font-weight: 780;
   transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
@@ -1915,6 +1932,98 @@ button {
   opacity: 0.62;
   transform: none;
   box-shadow: none;
+}
+
+.share-modal-card {
+  width: min(100%, 570px);
+  max-height: min(820px, calc(100vh - 48px));
+  margin-top: 0;
+}
+
+.share-modal-layout {
+  display: grid;
+  grid-template-areas:
+    'poster quick'
+    'poster poster-actions';
+  grid-template-columns: minmax(280px, 340px) 158px;
+  gap: 18px 22px;
+}
+
+.share-poster-section,
+.share-action-section {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.share-poster-section {
+  grid-area: poster;
+}
+
+.share-action-section {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+.share-action-section--quick {
+  grid-area: quick;
+}
+
+.share-action-section--poster {
+  grid-area: poster-actions;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.share-poster-section h3,
+.share-action-section h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.02rem;
+}
+
+.share-action-stack {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.share-poster-preview span {
+  padding: 14px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.share-action-stack .btn {
+  width: 132px;
+  min-height: 42px;
+  padding: 0 18px;
+  font-size: 0.86rem;
+}
+
+.share-poster-preview {
+  min-height: 390px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #edf4ff;
+}
+
+.share-poster-preview img {
+  width: auto;
+  max-width: 100%;
+  max-height: 390px;
+  display: block;
+  object-fit: contain;
+}
+
+.share-feedback {
+  margin-top: 18px;
 }
 
 .my-apps-panel {
@@ -2781,6 +2890,10 @@ button {
     align-items: center;
   }
 
+  .modal-backdrop--share {
+    align-items: start;
+  }
+
   .modal-backdrop--dashboard .modal-card {
     max-height: calc(100vh - 28px);
   }
@@ -2843,12 +2956,38 @@ button {
     justify-content: flex-start;
   }
 
-  .market-app-card__actions .btn {
-    flex: 1 1 120px;
-  }
-
   .market-like-button {
     flex: 0 0 auto;
+  }
+
+  .share-modal-layout {
+    grid-template-areas:
+      'quick'
+      'poster'
+      'poster-actions';
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .share-action-section,
+  .share-action-section--poster {
+    padding-top: 18px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .share-action-section--quick {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .share-poster-preview {
+    min-height: 240px;
+  }
+
+  .share-poster-preview img {
+    max-height: 300px;
   }
 
   .review-modal-actions {
