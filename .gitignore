@@ -1,3 +1,6 @@
+# App covers
+backend/static/covers
+
 # Doc files
 doc/
 .vscode/
