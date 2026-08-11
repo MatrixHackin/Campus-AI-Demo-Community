@@ -1,25 +1,15 @@
-# Before applying this manifest, create the two secrets:
-# kubectl create namespace campus-ai-system
-# kubectl -n campus-ai-system create secret generic ssh-gateway-host-key \
-#   --from-file=ssh_gateway_host_key=backend/.run/ssh_gateway_host_key
-# kubectl -n campus-ai-system create secret generic ssh-gateway-control-plane \
-#   --from-literal=token='<same value as backend INTERNAL_API_TOKEN>'
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: campus-ai-system
----
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: ssh-gateway
+  name: ssh-gateway-bridge
   namespace: campus-ai-system
   labels:
-    app: ssh-gateway
+    app.kubernetes.io/managed-by: campus-ai
+    campus-ai/migration: ssh-gateway-noncompetition
 spec:
   selector:
     matchLabels:
-      app: ssh-gateway
+      campus-ai/gateway-pool: bridge-noncompetition
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -28,6 +18,8 @@ spec:
     metadata:
       labels:
         app: ssh-gateway
+        campus-ai/gateway-pool: bridge-noncompetition
+        campus-ai/migration: ssh-gateway-noncompetition
     spec:
       nodeSelector:
         campus-ai/ssh-gateway: "true"
@@ -95,38 +87,3 @@ spec:
           secret:
             secretName: ssh-gateway-host-key
             defaultMode: 0600
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ssh-gateway-ssh
-  namespace: campus-ai-system
-  labels:
-    app: ssh-gateway
-spec:
-  type: NodePort
-  selector:
-    app: ssh-gateway
-  ports:
-    - name: ssh
-      port: 2222
-      targetPort: ssh
-      nodePort: 32222
-      protocol: TCP
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ssh-gateway-web
-  namespace: campus-ai-system
-  labels:
-    app: ssh-gateway
-spec:
-  type: ClusterIP
-  selector:
-    app: ssh-gateway
-  ports:
-    - name: http
-      port: 8080
-      targetPort: http
-      protocol: TCP

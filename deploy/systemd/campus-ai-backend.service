@@ -9,9 +9,13 @@ User=liuhemu
 Group=liuhemu
 WorkingDirectory=/home/ldaphome/liuhemu/document/Campus-AI-Demo-Community/backend
 Environment=PATH=/home/ldaphome/liuhemu/miniconda3/envs/campusai/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+RuntimeDirectory=campus-ai-backend
+RuntimeDirectoryMode=0700
+Environment=TMPDIR=/run/campus-ai-backend
 ExecStart=/home/ldaphome/liuhemu/miniconda3/envs/campusai/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
 Restart=always
 RestartSec=3
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

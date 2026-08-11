@@ -220,3 +220,10 @@ frontend/dist/
 backend/.venv/
 .codex
 .run/
+backups/
+
+# One-off migration manifests containing user-specific runtime metadata
+deploy/migration/commit-*.yaml
+deploy/migration/pod-*.yaml
+deploy/migration/smoke-*.yaml
+deploy/migration/migrate-*-remaining-*.sh
