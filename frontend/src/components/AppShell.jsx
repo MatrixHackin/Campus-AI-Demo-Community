@@ -13,8 +13,8 @@ import BrandLogo from './BrandLogo'
 import SiteFooter from './SiteFooter'
 
 const navItems = [
+  { to: '/community', label: '应用社区' },
   { to: '/dashboard', label: '工作台' },
-  { to: '/community', label: '应用市场' },
   { to: '/my-apps', label: '我的应用' },
   { to: '/manual', label: '开发手册' }
 ]
@@ -251,10 +251,10 @@ export default function AppShell({ children }) {
   return (
     <div className="site-shell app-shell">
       <header className="app-nav">
-        <div className="site-brand" aria-label="Campus AI Community">
+        <NavLink className="site-brand" to="/community" aria-label="Campus AI Community">
           <BrandLogo />
           <span>Campus AI Community</span>
-        </div>
+        </NavLink>
 
         <nav className="app-nav__links" aria-label="应用导航" ref={navLinksRef}>
           {[...navItems, ...(user?.is_admin ? adminNavItems : [])].map((item) => (

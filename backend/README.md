@@ -139,7 +139,7 @@ HARBOR_REQUEST_TIMEOUT_SECONDS=10
 
 ## K3s Namespace 与开发容器
 
-当前已对接 K3s 的 namespace 创建、用户级 Longhorn 持久存储、默认 devbox Pod 申请、容器删除，
+当前已对接 K3s 的 namespace 创建、用户级 RWX 持久存储、默认 devbox Pod 申请、容器删除，
 以及基于 Traefik Ingress 的 HTTP 应用暴露能力。
 
 后端不会在 SSO 登录/注册时创建 namespace。用户在工作台点击“申请容器”时，后端才会使用当前
@@ -271,8 +271,8 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - 如果 `APP_ACCESS_CONTROL_ENABLED=true`，未发布、审核中、被拒绝或已取消发布的应用 Ingress 会挂载
   Traefik ForwardAuth Middleware：应用开发者和管理员仍可访问 `/apps/{app_name}`，其他用户会看到平台返回的
   “应用已下架”；审核通过并发布后会移除该 Middleware，让应用流量直接进入对应 Service。
-- 用户首次申请开发沙盒时，后端会在该用户 namespace 下懒创建一个用户级 Longhorn PVC
-  `user-workspace`，默认 `64Gi / ReadWriteMany / storageClassName=longhorn`；后续同一用户的开发沙盒
+- 用户首次申请开发沙盒时，后端会在该用户 namespace 下懒创建一个用户级 RWX PVC
+  `user-workspace`，默认 `64Gi / ReadWriteMany / storageClassName=nfs-client`；后续同一用户的开发沙盒
   会复用该 PVC，并挂载到容器内 `/mydata`。删除单个沙盒不会删除该用户级 PVC。
 - 如果 `K3S_NETWORK_POLICY_ENABLED=true`，申请容器时会在该用户 namespace 下创建/更新 devbox
   NetworkPolicy：默认拒绝 devbox 入站/出站，仅放行 Traefik 访问 Pod `3000`、`K3S_DEVBOX_DNS_NAMESERVERS`

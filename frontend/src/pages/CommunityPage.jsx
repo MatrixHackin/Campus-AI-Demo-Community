@@ -9,6 +9,7 @@ import {
   toggleAppLike
 } from '../api/client'
 import AppShell from '../components/AppShell'
+import { getAppAccessUrl } from '../utils/appUrl'
 
 const REVIEW_COMMENT_MAX_LENGTH = 240
 const SHARE_POSTER_WIDTH = 1080
@@ -46,7 +47,7 @@ function getAbsoluteUrl(value) {
 }
 
 function getShareTargetUrl(app) {
-  return app?.share_url || app?.app_url || ''
+  return getAppAccessUrl(app) || app?.share_url || ''
 }
 
 function getShareText(app) {
@@ -212,8 +213,16 @@ async function createSharePoster(app, qrDataUrl) {
 }
 
 function AppCover({ app }) {
-  if (app.cover_url) {
-    return <img src={app.cover_url} alt={`${app.app_name} 封面`} />
+  const [failed, setFailed] = useState(false)
+
+  if (app.cover_url && !failed) {
+    return (
+      <img
+        src={app.cover_url}
+        alt={`${app.app_name} 封面`}
+        onError={() => setFailed(true)}
+      />
+    )
   }
 
   return (
@@ -651,8 +660,9 @@ export default function CommunityPage() {
   }, [loadApps])
 
   const handleOpenApp = useCallback((app) => {
-    if (!app?.app_url) return
-    window.open(app.app_url, '_blank', 'noopener,noreferrer')
+    const accessUrl = getAppAccessUrl(app)
+    if (!accessUrl) return
+    window.open(accessUrl, '_blank', 'noopener,noreferrer')
     setApps((prev) => prev.map((item) => (
       item.id === app.id ? { ...item, visit_count: (item.visit_count || 0) + 1 } : item
     )))
@@ -663,7 +673,7 @@ export default function CommunityPage() {
         )))
       })
       .catch(() => {
-        // 访问应用不应被计数失败阻塞，刷新应用市场时会重新同步后端计数。
+        // 访问应用不应被计数失败阻塞，刷新应用社区时会重新同步后端计数。
       })
   }, [])
 
@@ -828,7 +838,13 @@ export default function CommunityPage() {
 
   return (
     <AppShell>
-      <section className="market-panel" aria-label="应用市场">
+      <section className="market-panel" aria-label="应用社区">
+        <div className="market-panel__heading">
+          <div>
+            <h1>应用社区</h1>
+            <p>发现、访问和评价同学们发布的校园应用。</p>
+          </div>
+        </div>
         <div className="market-panel__toolbar">
           <div className="market-sort-control" role="group" aria-label="应用排序方式">
             <span>排序</span>
@@ -852,16 +868,21 @@ export default function CommunityPage() {
         </div>
 
         {error ? <div className="feedback feedback--error">{error}</div> : null}
-        {loading ? <div className="muted-card">正在加载应用市场…</div> : null}
+        {loading && apps.length === 0 ? <div className="muted-card">正在加载应用社区…</div> : null}
         {!loading && !error && apps.length === 0 ? <div className="muted-card">暂无已发布应用。</div> : null}
 
-        {!loading && !error && apps.length > 0 ? (
+        {apps.length > 0 ? (
           <div className="market-app-grid">
             {sortedApps.map((app) => (
               <article className="market-app-card" key={app.id}>
-                <div className="market-app-card__cover">
+                <button
+                  className="market-app-card__cover"
+                  type="button"
+                  onClick={() => handleOpenApp(app)}
+                  aria-label={`打开 ${app.app_name}`}
+                >
                   <AppCover app={app} />
-                </div>
+                </button>
                 <div className="market-app-card__body">
                   <div>
                     <div className="market-app-card__title-row">

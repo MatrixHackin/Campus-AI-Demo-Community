@@ -7,6 +7,7 @@ import {
   updateAdminPublicationSettings
 } from '../api/client'
 import AppShell from '../components/AppShell'
+import { getAppAccessUrl } from '../utils/appUrl'
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: '待审核' },
@@ -181,7 +182,7 @@ export default function AdminPublicationReviewPage() {
                 {app.reject_reason ? <div className="feedback feedback--error">{app.reject_reason}</div> : null}
               </div>
               <div className="admin-review-item__actions">
-                <button className="btn btn--secondary" type="button" onClick={() => window.open(app.app_url, '_blank', 'noopener,noreferrer')}>
+                <button className="btn btn--secondary" type="button" onClick={() => window.open(getAppAccessUrl(app), '_blank', 'noopener,noreferrer')}>
                   打开应用
                 </button>
                 <button

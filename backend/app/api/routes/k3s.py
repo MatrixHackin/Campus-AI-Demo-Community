@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
 
-from app.api.deps import get_container_usage_service, get_current_session_with_emp_id, get_k3s_service
+from app.api.deps import (
+    get_container_usage_service,
+    get_current_admin_session_with_emp_id,
+    get_current_session_with_emp_id,
+    get_k3s_service,
+)
 from app.schemas.k3s import (
     AppNameAvailabilityResponse,
     ContainerCommitRequest,
@@ -24,7 +29,7 @@ router = APIRouter(prefix='/k3s', tags=['k3s'])
 @router.post('/devbox', response_model=DevboxCreateResponse)
 async def create_devbox_container(
     payload: DevboxCreateRequest,
-    current_session: SessionRecord = Depends(get_current_session_with_emp_id),
+    current_session: SessionRecord = Depends(get_current_admin_session_with_emp_id),
     k3s_service: K3SService = Depends(get_k3s_service),
 ):
     try:
@@ -53,7 +58,7 @@ async def create_devbox_container(
 @router.get('/apps/check-name', response_model=AppNameAvailabilityResponse)
 async def check_app_name_availability(
     app_name: str,
-    _current_session: SessionRecord = Depends(get_current_session_with_emp_id),
+    _current_session: SessionRecord = Depends(get_current_admin_session_with_emp_id),
     k3s_service: K3SService = Depends(get_k3s_service),
 ):
     try:

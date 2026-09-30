@@ -102,3 +102,11 @@ def get_current_admin_session(
     if not is_admin_session(session):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='需要管理员权限')
     return session
+
+
+def get_current_admin_session_with_emp_id(
+    session: SessionRecord = Depends(get_current_session_with_emp_id),
+) -> SessionRecord:
+    if not is_admin_session(session):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='当前仅管理员可以申请开发沙盒')
+    return session

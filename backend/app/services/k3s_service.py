@@ -1309,7 +1309,7 @@ class K3SService:
         )
 
     def _ensure_user_workspace_pvc(self, namespace: str) -> str:
-        """确保用户 namespace 下存在一个用户级 Longhorn RWX 工作区 PVC。"""
+        """确保用户 namespace 下存在一个用户级 RWX 工作区 PVC。"""
         pvc_name = self.settings.k3s_user_workspace_pvc_name.strip() or 'user-workspace'
         if not K8S_DNS_LABEL_PATTERN.fullmatch(pvc_name):
             raise RuntimeError(f'用户持久存储 PVC 名称不合法：{pvc_name}')

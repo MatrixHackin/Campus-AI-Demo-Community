@@ -1,0 +1,19 @@
+[Unit]
+Description=Campus AI Community Vite Frontend
+After=network-online.target campus-ai-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=liuhemu
+Group=liuhemu
+WorkingDirectory=/home/ldaphome/liuhemu/document/Campus-AI-Demo-Community/frontend
+Environment=NODE_ENV=development
+Environment=VITE_API_BASE_URL=/api/v1
+ExecStart=/usr/bin/npm run dev -- --host 0.0.0.0 --port 5173
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

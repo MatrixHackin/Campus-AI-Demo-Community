@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
 
   if (!isLoading && isAuthenticated) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/community" replace />
   }
 
   const onSubmit = async (event) => {
@@ -21,7 +21,7 @@ export default function LoginPage() {
     setError('')
     try {
       await login(form)
-      navigate('/dashboard')
+      navigate('/community')
     } catch (err) {
       setError(err.message)
     } finally {

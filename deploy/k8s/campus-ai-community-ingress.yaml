@@ -1,0 +1,171 @@
+# Official SSO hostname -> host Vite, which proxies /auth /api /signin-oidc
+# to FastAPI. Do not publish path / as Prefix: a high-priority catch-all
+# steals /apps/* and loops through the Vite apps proxy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: campus-ai-web
+  namespace: campus-ai-system
+  labels:
+    app: campus-ai-community
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5173
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: campus-ai-web
+  namespace: campus-ai-system
+  labels:
+    app: campus-ai-community
+subsets:
+  - addresses:
+      - ip: 10.120.17.138
+    ports:
+      - name: http
+        port: 5173
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: campus-ai-community
+  namespace: campus-ai-system
+  labels:
+    app: campus-ai-community
+  annotations:
+    traefik.ingress.kubernetes.io/router.priority: "1000"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: gpunion.hkust-gz.edu.cn
+      http:
+        paths:
+          - path: /signin-oidc
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /signout-callback
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /auth
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /login
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /community
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /my-apps
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /manual
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /ssh
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /share
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /@vite
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /@react-refresh
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /@fs
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /src
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /node_modules
+            pathType: Prefix
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: campus-ai-web
+                port:
+                  number: 80

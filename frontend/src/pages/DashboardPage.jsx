@@ -14,6 +14,8 @@ import {
   unpublishApp
 } from '../api/client'
 import AppShell from '../components/AppShell'
+import { useAuth } from '../context/AuthContext'
+import { getAppAccessUrl } from '../utils/appUrl'
 
 const APP_NAME_PATTERN = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 const CONTAINER_REFRESH_INTERVAL_MS = 5000
@@ -691,6 +693,8 @@ function ContainerApplyModal({
 }
 
 export default function DashboardPage() {
+  const { user } = useAuth()
+  const canApplySandbox = Boolean(user?.is_admin)
   const [harborInfo, setHarborInfo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -845,10 +849,11 @@ export default function DashboardPage() {
   }, [])
 
   const handleOpenApplyModal = useCallback(() => {
+    if (!canApplySandbox) return
     setContainerError('')
     resetApplyForm()
     setIsApplyModalOpen(true)
-  }, [resetApplyForm])
+  }, [canApplySandbox, resetApplyForm])
 
   const handleCloseApplyModal = useCallback(() => {
     if (creatingContainer) return
@@ -864,6 +869,10 @@ export default function DashboardPage() {
 
   const handleCreateContainer = useCallback(async (event) => {
     event.preventDefault()
+    if (!canApplySandbox) {
+      setApplyFormError('当前仅管理员可以申请开发沙盒')
+      return
+    }
     const normalizedAppName = appName.trim().toLowerCase()
     if (!APP_NAME_PATTERN.test(normalizedAppName)) {
       setApplyFormError('app_name 只允许小写字母、数字和中划线，且必须以字母或数字开头结尾')
@@ -936,7 +945,7 @@ export default function DashboardPage() {
     } finally {
       setCreatingContainer(false)
     }
-  }, [appName, connectionPassword, gpuConfig, harborInfo, pollContainersUntil, resetApplyForm, selectedImage])
+  }, [appName, canApplySandbox, connectionPassword, gpuConfig, harborInfo, pollContainersUntil, resetApplyForm, selectedImage])
 
   const handleDeleteContainer = useCallback(async (container) => {
     if (!container?.name) return
@@ -973,8 +982,9 @@ export default function DashboardPage() {
   }, [])
 
   const handleOpenApp = useCallback((container) => {
-    if (!container?.url) return
-    window.open(container.url, '_blank', 'noopener,noreferrer')
+    const accessUrl = getAppAccessUrl(container)
+    if (!accessUrl) return
+    window.open(accessUrl, '_blank', 'noopener,noreferrer')
   }, [])
 
   const handleCopySsh = useCallback(async (container) => {
@@ -1194,15 +1204,22 @@ export default function DashboardPage() {
         <section className="content-panel container-request-panel" aria-labelledby="container-request-title">
           <div className="dashboard-panel-heading">
             <h1 id="container-request-title">开发沙盒</h1>
-            <button
-              className="btn btn--primary"
-              type="button"
-              onClick={handleOpenApplyModal}
-              disabled={creatingContainer}
-            >
-              {creatingContainer ? '创建中…' : '创建开发沙盒'}
-            </button>
+            {canApplySandbox ? (
+              <button
+                className="btn btn--primary"
+                type="button"
+                onClick={handleOpenApplyModal}
+                disabled={creatingContainer}
+              >
+                {creatingContainer ? '创建中…' : '创建开发沙盒'}
+              </button>
+            ) : null}
           </div>
+          {!canApplySandbox ? (
+            <div className="feedback feedback--info" role="status">
+              当前仅管理员可以申请开发沙盒。
+            </div>
+          ) : null}
 
           {containerError ? <div className="feedback feedback--error">{containerError}</div> : null}
           {containersError ? <div className="feedback feedback--error">{containersError}</div> : null}
@@ -1265,7 +1282,7 @@ export default function DashboardPage() {
         </aside>
       </div>
 
-      {isApplyModalOpen ? (
+      {isApplyModalOpen && canApplySandbox ? (
         <ContainerApplyModal
           appName={appName}
           appNameCheck={appNameCheck}

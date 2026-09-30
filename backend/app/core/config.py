@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     app_access_auth_middleware_name: str = 'campus-ai-app-access-auth'
     k3s_user_workspace_enabled: bool = True
     k3s_user_workspace_pvc_name: str = 'user-workspace'
-    k3s_user_workspace_storage_class: str = 'longhorn'
+    k3s_user_workspace_storage_class: str = 'nfs-client'
     k3s_user_workspace_size: str = '64Gi'
     k3s_user_workspace_access_mode: str = 'ReadWriteMany'
     k3s_user_workspace_mount_path: str = '/mydata'
