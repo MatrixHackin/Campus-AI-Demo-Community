@@ -316,3 +316,34 @@ class HarborService:
         except Exception as exc:
             logger.warning('Harbor tag query failed for %s/%s: %s', project_name, repo_name, exc)
             return []
+
+    def artifact_exists(self, project_name: str, repository: str, tag: str = 'latest') -> bool:
+        if not self.configured:
+            return False
+        encoded_project = quote(project_name, safe='')
+        encoded_repository = quote(repository, safe='')
+        encoded_tag = quote(tag, safe='')
+        try:
+            response = requests.get(
+                (
+                    f'{self._harbor_url()}projects/{encoded_project}/repositories/'
+                    f'{encoded_repository}/artifacts/{encoded_tag}'
+                ),
+                auth=self._admin_auth(),
+                timeout=self._timeout(),
+            )
+        except requests.RequestException as exc:
+            logger.warning('Harbor artifact query failed for %s/%s:%s: %s', project_name, repository, tag, exc)
+            return False
+        if response.status_code == 200:
+            return True
+        if response.status_code == 404:
+            return False
+        logger.warning(
+            'Harbor artifact query failed for %s/%s:%s: HTTP %s',
+            project_name,
+            repository,
+            tag,
+            response.status_code,
+        )
+        return False

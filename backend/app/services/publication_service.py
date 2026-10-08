@@ -74,6 +74,14 @@ class PublicationService:
         if not app_name:
             raise ValueError('容器记录缺少 app_name，无法发布')
 
+        if self.k3s_service:
+            self.k3s_service.deploy_published_runtime(
+                emp_id=session.emp_id,
+                username=session.username,
+                email=session.email,
+                pod_name=pod_name,
+            )
+
         old_publication = self.repository.get_by_pod_name(pod_name)
         cover_url = old_publication.get('cover_url') if old_publication else None
         old_cover_url = cover_url
@@ -234,6 +242,8 @@ class PublicationService:
         if row.get('owner_username') != session.username:
             raise PermissionError('无权取消发布该应用')
         self._ensure_app_private_before_status_change(row)
+        if self.k3s_service:
+            self.k3s_service.remove_published_runtime(pod_name=pod_name, username=session.username)
         old_cover_url = row.get('cover_url')
         deleted = self.repository.delete_by_pod_name(pod_name, delete_likes=False)
         if deleted and old_cover_url:

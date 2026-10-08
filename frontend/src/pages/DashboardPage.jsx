@@ -1,19 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  buildRuntimeImage,
   checkAppName,
-  commitContainer,
+  createAgentConfig,
   createDevboxContainer,
+  deleteAgentConfig,
   deleteContainer,
   getK3sJobStatus,
   getMyContainers,
   getMyHarborImages,
   getMyPublicationStatuses,
   getPublicationSettings,
+  listAgentConfigs,
   publishApp,
-  unpublishApp
+  unpublishApp,
+  updateAgentConfig
 } from '../api/client'
 import AppShell from '../components/AppShell'
+import ModelConfigCenter, { EMPTY_DRAFT, ModelConfigPicker } from '../components/ModelConfigCenter'
 import { useAuth } from '../context/AuthContext'
 import { getAppAccessUrl } from '../utils/appUrl'
 
@@ -24,9 +29,8 @@ const COVER_MAX_UPLOAD_BYTES = 512 * 1024
 const COVER_CANVAS_WIDTH = 960
 const COVER_CANVAS_HEIGHT = 540
 const APP_DESCRIPTION_MAX_LENGTH = 40
-const COMMIT_IMAGE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
-const COMMIT_JOB_REFRESH_INTERVAL_MS = 5000
-const COMMIT_JOB_MAX_ATTEMPTS = 200
+const RUNTIME_JOB_REFRESH_INTERVAL_MS = 5000
+const RUNTIME_JOB_MAX_ATTEMPTS = 200
 const FALLBACK_DEVBOX_IMAGE = 'gpunion2.io/dev/devbox:latest'
 const VISIBLE_REFRESH_MIN_INTERVAL_MS = 2000
 const PUBLICATION_BUTTON_LABELS = {
@@ -149,45 +153,22 @@ async function compressCoverImage(file) {
   throw new Error('封面压缩后仍过大，请更换更轻量的图片')
 }
 
-function formatDateTime(value) {
-  if (!value) return '未知'
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return '未知'
-  }
-
-  return date.toLocaleString('zh-CN', {
-    hour12: false,
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-function imageShortName(repo) {
-  return repo?.name || '未命名模板'
-}
-
 function imageNameFromRef(image) {
-  if (!image) return '开发环境模板'
+  if (!image) return '开发镜像'
   const withoutDigest = image.split('@')[0]
   const lastPart = withoutDigest.split('/').pop() || withoutDigest
-  return lastPart.split(':')[0] || '开发环境模板'
+  return lastPart.split(':')[0] || '开发镜像'
 }
 
 function allRepositoryImages(info) {
   return [
     defaultRepositoryImage(info),
-    ...((info?.private_project?.repos || []).map((repo) => repo.image)),
     ...((info?.public_project_info?.repos || []).map((repo) => repo.image))
   ].filter(Boolean)
 }
 
 function defaultRepositoryImage(info) {
   const publicRepos = info?.public_project_info?.repos || []
-  const privateRepos = info?.private_project?.repos || []
   const devboxRepo = publicRepos.find((repo) => (
     repo.name === 'devbox' || /(^|\/)devbox(?::|$)/.test(repo.image || '')
   ))
@@ -195,7 +176,7 @@ function defaultRepositoryImage(info) {
   if (info?.registry && info?.public_project) {
     return `${info.registry.replace(/\/$/, '')}/${info.public_project}/devbox:latest`
   }
-  return publicRepos[0]?.image || privateRepos[0]?.image || FALLBACK_DEVBOX_IMAGE
+  return publicRepos[0]?.image || FALLBACK_DEVBOX_IMAGE
 }
 
 
@@ -247,53 +228,88 @@ function statusText(status) {
   return statusMap[status] || status || '未知'
 }
 
-function ImageList({
-  title,
-  project,
-  message,
-  loading,
-  limit,
-  selectedImage,
-  variant = 'private',
-  onSelectImage
+function ConnectMenu({
+  container,
+  onCopySsh,
+  onOpenCursor,
+  onOpenVSCode,
+  onOpenWebSsh
 }) {
-  const repos = project?.repos || []
-  const visibleRepos = repos.slice(0, limit)
-  const countLabel = `${Math.min(repos.length, limit)}/${limit}`
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef(null)
+  const options = [
+    {
+      label: 'Cursor连接',
+      disabled: !container.native_ssh_command,
+      onSelect: () => onOpenCursor(container)
+    },
+    {
+      label: 'VSCode连接',
+      disabled: !container.native_ssh_command,
+      onSelect: () => onOpenVSCode(container)
+    },
+    {
+      label: '复制 SSH',
+      disabled: !container.native_ssh_command,
+      onSelect: () => onCopySsh(container)
+    },
+    {
+      label: 'WebSSH',
+      disabled: !container.webssh_url,
+      onSelect: () => onOpenWebSsh(container)
+    }
+  ]
+  const canConnect = options.some((option) => !option.disabled)
+
+  useEffect(() => {
+    if (!open) return undefined
+    const closeOnOutside = (event) => {
+      if (!rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
 
   return (
-    <section className={`image-section image-section--${variant}`} aria-labelledby={`${title}-title`}>
-      <div className="image-section__heading">
-        <h2 id={`${title}-title`}>{title}</h2>
-        <span>{countLabel}</span>
-      </div>
-
-      {loading ? <div className="muted-card">正在加载…</div> : null}
-      {!loading && message ? <div className="muted-card">{message}</div> : null}
-      {!loading && !message && project?.exists && repos.length === 0 ? (
-        <div className="muted-card">暂无模板。</div>
-      ) : null}
-
-      {!loading && project?.exists ? (
-        <div className={`image-button-grid image-button-grid--${variant}`}>
-          {visibleRepos.map((repo) => (
+    <div className={`connect-menu${open ? ' connect-menu--open' : ''}`} ref={rootRef}>
+      <button
+        className="container-action-button connect-menu__trigger"
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        disabled={!canConnect}
+        onClick={() => setOpen((current) => !current)}
+      >
+        连接容器
+        <span className="connect-menu__caret" aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <div className="connect-menu__panel" role="menu">
+          {options.map((option) => (
             <button
-              className={`image-button${selectedImage === repo.image ? ' image-button--selected' : ''}`}
-              key={repo.full_name}
+              className="connect-menu__item"
+              key={option.label}
               type="button"
-              aria-pressed={selectedImage === repo.image}
-              onClick={() => onSelectImage(repo.image)}
-              title={`${repo.image}\n版本 ${repo.artifact_count || 0} · 拉取 ${repo.pull_count || 0} · 更新 ${formatDateTime(repo.update_time)}`}
+              role="menuitem"
+              disabled={option.disabled}
+              onClick={() => {
+                setOpen(false)
+                option.onSelect()
+              }}
             >
-              <span className="image-button__thumb" aria-hidden="true">
-                <span>{imageShortName(repo).slice(0, 1).toUpperCase()}</span>
-              </span>
-              <span className="image-button__name">{imageShortName(repo)}</span>
+              {option.label}
             </button>
           ))}
         </div>
       ) : null}
-    </section>
+    </div>
   )
 }
 
@@ -302,15 +318,14 @@ function ContainerList({
   deletingPodName,
   loading,
   publishingPodName,
-  savingJobs,
   onCopySsh,
   onDelete,
+  onOpenAgent,
   onOpenCursor,
   onOpenVSCode,
   onOpenApp,
   onOpenPublish,
   onOpenWebSsh,
-  onSaveContainer,
   onUnpublish
 }) {
   if (loading) {
@@ -326,8 +341,6 @@ function ContainerList({
       {containers.map((container) => {
         const imageName = imageNameFromRef(container.image)
         const displayName = container.app_name || container.name
-        const saveState = savingJobs[container.name]
-        const isSaving = saveState && !['Succeeded', 'Failed', 'NotFound', 'Error'].includes(saveState.status)
         const publicationStatus = container.publication_status || (container.is_published ? 'approved' : 'unpublished')
         const canUnpublish = publicationStatus === 'approved'
         const canPublish = ['unpublished', 'rejected'].includes(publicationStatus)
@@ -355,15 +368,6 @@ function ContainerList({
                   访问应用
                 </button>
                 <button
-                  className="container-action-button"
-                  type="button"
-                  title={saveState?.message || '保存当前开发沙盒为我的开发环境模板'}
-                  onClick={() => onSaveContainer(container)}
-                  disabled={isSaving || container.status !== 'Running'}
-                >
-                  {isSaving ? '保存中…' : '保存为我的模板'}
-                </button>
-                <button
                   className="container-delete-button"
                   type="button"
                   onClick={() => onDelete(container)}
@@ -373,39 +377,20 @@ function ContainerList({
                 </button>
               </div>
               <div className="container-row__action-line container-row__action-line--connection">
+                <ConnectMenu
+                  container={container}
+                  onCopySsh={onCopySsh}
+                  onOpenCursor={onOpenCursor}
+                  onOpenVSCode={onOpenVSCode}
+                  onOpenWebSsh={onOpenWebSsh}
+                />
                 <button
                   className="container-action-button"
                   type="button"
-                  onClick={() => onOpenWebSsh(container)}
-                  disabled={!container.webssh_url}
+                  onClick={() => onOpenAgent(container)}
+                  disabled={container.status !== 'Running'}
                 >
-                  WebSSH
-                </button>
-                <button
-                  className="container-action-button"
-                  type="button"
-                  onClick={() => onCopySsh(container)}
-                  disabled={!container.native_ssh_command}
-                >
-                  复制 SSH
-                </button>
-                <button
-                  className="container-action-button"
-                  type="button"
-                  onClick={() => onOpenVSCode(container)}
-                  disabled={!container.native_ssh_command}
-                  title="使用本机 VS Code Remote SSH 打开"
-                >
-                  VSCode连接
-                </button>
-                <button
-                  className="container-action-button"
-                  type="button"
-                  onClick={() => onOpenCursor(container)}
-                  disabled={!container.native_ssh_command}
-                  title="使用本机 Cursor Remote SSH 打开"
-                >
-                  Cursor连接
+                  使用 web-dev-agent 进行开发
                 </button>
               </div>
               <div className="container-row__action-line container-row__action-line--publication">
@@ -442,6 +427,7 @@ function PublishAppModal({
   error,
   reviewSettings,
   responsibilityAck,
+  statusMessage,
   submitting,
   onClose,
   onCoverChange,
@@ -460,8 +446,8 @@ function PublishAppModal({
             <h2 id="publish-title">发布应用</h2>
             <p>
               {reviewSettings?.review_policy === 'require_review'
-                ? '提交后将进入管理员审核，通过后展示在应用市场。'
-                : '发布后将在应用市场展示为应用卡片。'}
+                ? '提交后会先构建运行镜像。审核通过后，应用市场访问这个运行副本。'
+                : '发布时会按 Dockerfile 构建运行镜像，推到你的个人仓库，并在集群里单独启动。应用市场访问的是运行镜像。'}
             </p>
           </div>
         </div>
@@ -510,6 +496,7 @@ function PublishAppModal({
             </span>
           </label>
 
+          {statusMessage ? <div className="feedback feedback--info">{statusMessage}</div> : null}
           {error ? <div className="feedback feedback--error">{error}</div> : null}
 
           <div className="modal-actions">
@@ -559,9 +546,9 @@ function ContainerApplyModal({
 
         <form className="modal-form" onSubmit={onSubmit}>
           <label>
-            <span>使用开发环境模板</span>
+            <span>开发镜像</span>
             <input type="text" value={imageNameFromRef(selectedImage)} title={selectedImage} disabled />
-            <small>开发沙盒将使用当前选中的开发环境模板，默认选中公有开发环境模板。</small>
+            <small>开发沙盒使用公共开发镜像。发布时会另打运行镜像，放进个人仓库。</small>
           </label>
 
           <label>
@@ -696,8 +683,6 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const canApplySandbox = Boolean(user?.is_admin)
   const [harborInfo, setHarborInfo] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [containersInfo, setContainersInfo] = useState({ containers: [] })
   const [containersLoading, setContainersLoading] = useState(true)
   const [containersError, setContainersError] = useState('')
@@ -718,10 +703,17 @@ export default function DashboardPage() {
   const [publishReviewSettings, setPublishReviewSettings] = useState(null)
   const [responsibilityAck, setResponsibilityAck] = useState(false)
   const [publishingPodName, setPublishingPodName] = useState('')
-  const [savingJobs, setSavingJobs] = useState({})
+  const [publishPhase, setPublishPhase] = useState('')
+  const [agentTarget, setAgentTarget] = useState(null)
+  const [modelConfigs, setModelConfigs] = useState([])
+  const [modelConfigsLoading, setModelConfigsLoading] = useState(true)
+  const [modelConfigsError, setModelConfigsError] = useState('')
+  const [modelDraft, setModelDraft] = useState(EMPTY_DRAFT)
+  const [editingConfigId, setEditingConfigId] = useState(null)
+  const [savingModelConfig, setSavingModelConfig] = useState(false)
+  const [modelFormOpen, setModelFormOpen] = useState(false)
   const [selectedImage, setSelectedImage] = useState(FALLBACK_DEVBOX_IMAGE)
   const containerPollTimersRef = useRef([])
-  const commitPollTimersRef = useRef([])
   const lastVisibleRefreshRef = useRef(0)
 
   const scheduleManagedTimeout = useCallback((timersRef, callback, delay) => {
@@ -739,19 +731,14 @@ export default function DashboardPage() {
 
   useEffect(() => () => {
     clearManagedTimeouts(containerPollTimersRef)
-    clearManagedTimeouts(commitPollTimersRef)
   }, [clearManagedTimeouts])
 
   const loadHarborImages = useCallback(async () => {
-    setLoading(true)
-    setError('')
     try {
       const result = await getMyHarborImages()
       setHarborInfo(result)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
+    } catch {
+      setHarborInfo(null)
     }
   }, [])
 
@@ -798,11 +785,25 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const loadModelConfigs = useCallback(async () => {
+    setModelConfigsLoading(true)
+    setModelConfigsError('')
+    try {
+      const result = await listAgentConfigs()
+      setModelConfigs(result.configs || [])
+    } catch (err) {
+      setModelConfigsError(err.message)
+    } finally {
+      setModelConfigsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadHarborImages()
     loadContainers()
     loadPublicationSettings()
-  }, [loadHarborImages, loadContainers, loadPublicationSettings])
+    loadModelConfigs()
+  }, [loadHarborImages, loadContainers, loadModelConfigs, loadPublicationSettings])
 
   useEffect(() => {
     const refreshVisibleContainers = () => {
@@ -1017,77 +1018,103 @@ export default function DashboardPage() {
     window.open(uri, '_blank', 'noopener,noreferrer')
   }, [])
 
-  const updateSavingJob = useCallback((podName, patch) => {
-    setSavingJobs((prev) => ({
-      ...prev,
-      [podName]: {
-        ...(prev[podName] || {}),
-        ...patch
-      }
-    }))
+  const handleOpenAgent = useCallback((container) => {
+    setAgentTarget(container)
   }, [])
 
-  const pollCommitJob = useCallback((podName, jobName, attempt = 1) => {
-    scheduleManagedTimeout(commitPollTimersRef, async () => {
-      try {
-        const status = await getK3sJobStatus(jobName)
-        updateSavingJob(podName, status)
-        if (status.status === 'Succeeded') {
-          loadHarborImages()
-          window.alert(`模板保存成功：${status.image || ''}`)
-          return
-        }
-        if (['Failed', 'NotFound', 'Error'].includes(status.status)) {
-          setContainerError(status.message || '模板保存失败')
-          return
-        }
-        if (attempt < COMMIT_JOB_MAX_ATTEMPTS) {
-          pollCommitJob(podName, jobName, attempt + 1)
-        } else {
-          updateSavingJob(podName, {
-            status: 'Error',
-            message: '保存任务查询超时，请稍后刷新模板仓库确认结果'
-          })
-          setContainerError('保存任务查询超时，请稍后刷新模板仓库确认结果')
-        }
-      } catch (err) {
-        updateSavingJob(podName, {
-          status: 'Error',
-          message: err.message
-        })
-        setContainerError(err.message)
-      }
-    }, COMMIT_JOB_REFRESH_INTERVAL_MS)
-  }, [loadHarborImages, scheduleManagedTimeout, updateSavingJob])
+  const handleSelectAgentConfig = useCallback((config) => {
+    if (!agentTarget?.app_name || !agentTarget?.name || !config?.id) return
+    const url = `/studio/${encodeURIComponent(agentTarget.app_name)}?pod=${encodeURIComponent(agentTarget.name)}&config=${config.id}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+    setAgentTarget(null)
+  }, [agentTarget])
 
-  const handleSaveContainer = useCallback(async (container) => {
-    if (!container?.name) return
-    const imageName = window.prompt('请输入要保存的开发环境模板名称，例如 my-backup-v1：')
-    if (!imageName) return
+  const resetModelDraft = useCallback(() => {
+    setModelDraft(EMPTY_DRAFT)
+    setEditingConfigId(null)
+  }, [])
 
-    const normalizedImageName = imageName.trim().toLowerCase()
-    if (!COMMIT_IMAGE_NAME_PATTERN.test(normalizedImageName) || normalizedImageName.length > 80) {
-      setContainerError('开发环境模板名称最多 80 个字符，只能包含小写字母、数字、点、下划线和中划线，且必须以字母或数字开头')
+  const handleOpenAddModelConfig = useCallback(() => {
+    resetModelDraft()
+    setModelConfigsError('')
+    setModelFormOpen(true)
+  }, [resetModelDraft])
+
+  const handleCloseModelForm = useCallback(() => {
+    if (savingModelConfig) return
+    resetModelDraft()
+    setModelConfigsError('')
+    setModelFormOpen(false)
+  }, [resetModelDraft, savingModelConfig])
+
+  const handleEditModelConfig = useCallback((config) => {
+    setEditingConfigId(config.id)
+    setModelDraft({
+      api_base: config.api_base || EMPTY_DRAFT.api_base,
+      model_name: config.model_name || '',
+      api_key: ''
+    })
+    setModelConfigsError('')
+    setModelFormOpen(true)
+  }, [])
+
+  const handleSaveModelConfig = useCallback(async (event) => {
+    event.preventDefault()
+    const apiBase = modelDraft.api_base.trim()
+    const modelName = modelDraft.model_name.trim()
+    const apiKey = modelDraft.api_key.trim()
+    if (!apiBase || !modelName) {
+      setModelConfigsError('请填写接口和模型名称')
       return
     }
-
-    setContainerError('')
-    updateSavingJob(container.name, {
-      status: 'Submitting',
-      message: '正在提交保存任务'
-    })
-    try {
-      const result = await commitContainer(container.name, normalizedImageName)
-      updateSavingJob(container.name, result)
-      pollCommitJob(container.name, result.job_name)
-    } catch (err) {
-      updateSavingJob(container.name, {
-        status: 'Error',
-        message: err.message
-      })
-      setContainerError(err.message)
+    if (!editingConfigId && !apiKey) {
+      setModelConfigsError('请填写 API Key')
+      return
     }
-  }, [pollCommitJob, updateSavingJob])
+    setSavingModelConfig(true)
+    setModelConfigsError('')
+    try {
+      if (editingConfigId) {
+        await updateAgentConfig(editingConfigId, {
+          api_base: apiBase,
+          model_name: modelName,
+          api_key: apiKey || null
+        })
+      } else {
+        await createAgentConfig({
+          api_base: apiBase,
+          model_name: modelName,
+          api_key: apiKey
+        })
+      }
+      resetModelDraft()
+      setModelFormOpen(false)
+      await loadModelConfigs()
+    } catch (err) {
+      setModelConfigsError(err.message)
+    } finally {
+      setSavingModelConfig(false)
+    }
+  }, [editingConfigId, loadModelConfigs, modelDraft, resetModelDraft])
+
+  const handleDeleteModelConfig = useCallback(async (config) => {
+    const confirmed = window.confirm(`确定删除模型配置 ${config.model_name} 吗？`)
+    if (!confirmed) return
+    setSavingModelConfig(true)
+    setModelConfigsError('')
+    try {
+      await deleteAgentConfig(config.id)
+      if (editingConfigId === config.id) {
+        resetModelDraft()
+        setModelFormOpen(false)
+      }
+      await loadModelConfigs()
+    } catch (err) {
+      setModelConfigsError(err.message)
+    } finally {
+      setSavingModelConfig(false)
+    }
+  }, [editingConfigId, loadModelConfigs, resetModelDraft])
 
   const handleOpenPublishModal = useCallback((container) => {
     setPublishTarget(container)
@@ -1152,13 +1179,28 @@ export default function DashboardPage() {
 
     setPublishingPodName(publishTarget.name)
     setPublishError('')
+    setPublishPhase('正在根据 Dockerfile 构建运行镜像…')
     try {
+      const job = await buildRuntimeImage(publishTarget.name)
+      for (let attempt = 0; attempt < RUNTIME_JOB_MAX_ATTEMPTS; attempt += 1) {
+        const status = await getK3sJobStatus(job.job_name)
+        if (status.status === 'Succeeded') break
+        if (['Failed', 'NotFound', 'Error'].includes(status.status)) {
+          throw new Error(status.message || '运行镜像构建失败')
+        }
+        if (attempt === RUNTIME_JOB_MAX_ATTEMPTS - 1) {
+          throw new Error('运行镜像构建超时，请稍后重试')
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, RUNTIME_JOB_REFRESH_INTERVAL_MS))
+      }
+      setPublishPhase('正在启动运行副本并提交发布…')
       const publication = await publishApp(publishTarget.name, {
         appDescription: publishDescription.trim(),
         cover: publishCoverFile,
         responsibilityAck
       })
       updateContainerPublication(publishTarget.name, publication)
+      loadHarborImages()
       setPublishTarget(null)
       setPublishDescription('')
       setPublishCoverFile(null)
@@ -1167,8 +1209,9 @@ export default function DashboardPage() {
       setPublishError(err.message)
     } finally {
       setPublishingPodName('')
+      setPublishPhase('')
     }
-  }, [publishCoverFile, publishDescription, publishTarget, responsibilityAck, updateContainerPublication])
+  }, [loadHarborImages, publishCoverFile, publishDescription, publishTarget, responsibilityAck, updateContainerPublication])
 
   const handleUnpublish = useCallback(async (container) => {
     if (!container?.name) return
@@ -1187,13 +1230,6 @@ export default function DashboardPage() {
     }
   }, [updateContainerPublication])
 
-  const harborConfigured = harborInfo?.configured
-  const privateMessage = !harborConfigured
-    ? harborInfo?.message || '模板仓库暂不可用'
-    : harborInfo?.private_message
-  const publicMessage = !harborConfigured
-    ? harborInfo?.message || '模板仓库暂不可用'
-    : harborInfo?.public_message
   const visibleContainers = (containersInfo?.containers || []).filter(
     (container) => container.status !== 'Terminating' && !hiddenDeletingPods.includes(container.name)
   )
@@ -1229,57 +1265,34 @@ export default function DashboardPage() {
               deletingPodName={deletingPodName}
               loading={containersLoading}
               publishingPodName={publishingPodName}
-              savingJobs={savingJobs}
               onCopySsh={handleCopySsh}
               onDelete={handleDeleteContainer}
+              onOpenAgent={handleOpenAgent}
               onOpenApp={handleOpenApp}
               onOpenCursor={handleOpenCursor}
               onOpenPublish={handleOpenPublishModal}
               onOpenVSCode={handleOpenVSCode}
               onOpenWebSsh={handleOpenWebSsh}
-              onSaveContainer={handleSaveContainer}
               onUnpublish={handleUnpublish}
             />
           ) : null}
         </section>
 
-        <aside className="image-repository-panel" aria-label="模板仓库">
-          <div className="image-repository-panel__header">
-            <div>
-              <h1>模板仓库</h1>
-            </div>
-            <button className="btn btn--primary" type="button" onClick={loadHarborImages} disabled={loading}>
-              {loading ? '刷新中' : '刷新'}
-            </button>
-          </div>
-
-          {error ? <div className="feedback feedback--error">{error}</div> : null}
-
-          {!error ? (
-            <>
-              <ImageList
-                title="我的模板"
-                project={harborInfo?.private_project}
-                message={privateMessage}
-                loading={loading}
-                limit={3}
-                selectedImage={selectedImage}
-                variant="private"
-                onSelectImage={setSelectedImage}
-              />
-              <ImageList
-                title="公有模板"
-                project={harborInfo?.public_project_info}
-                message={publicMessage}
-                loading={loading}
-                limit={9}
-                selectedImage={selectedImage}
-                variant="public"
-                onSelectImage={setSelectedImage}
-              />
-            </>
-          ) : null}
-        </aside>
+        <ModelConfigCenter
+          configs={modelConfigs}
+          loading={modelConfigsLoading}
+          error={modelConfigsError}
+          draft={modelDraft}
+          editingId={editingConfigId}
+          saving={savingModelConfig}
+          open={modelFormOpen}
+          onDraftChange={setModelDraft}
+          onAdd={handleOpenAddModelConfig}
+          onEdit={handleEditModelConfig}
+          onClose={handleCloseModelForm}
+          onSave={handleSaveModelConfig}
+          onDelete={handleDeleteModelConfig}
+        />
       </div>
 
       {isApplyModalOpen && canApplySandbox ? (
@@ -1305,6 +1318,7 @@ export default function DashboardPage() {
         error={publishError}
         reviewSettings={publishReviewSettings}
         responsibilityAck={responsibilityAck}
+        statusMessage={publishPhase}
         submitting={Boolean(publishingPodName)}
         onClose={handleClosePublishModal}
         onCoverChange={handlePublishCoverChange}
@@ -1312,6 +1326,15 @@ export default function DashboardPage() {
         onResponsibilityAckChange={setResponsibilityAck}
         onSubmit={handlePublishSubmit}
       />
+      {agentTarget ? (
+        <ModelConfigPicker
+          appName={agentTarget.app_name || agentTarget.name}
+          configs={modelConfigs}
+          loading={modelConfigsLoading}
+          onClose={() => setAgentTarget(null)}
+          onSelect={handleSelectAgentConfig}
+        />
+      ) : null}
     </AppShell>
   )
 }

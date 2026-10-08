@@ -1,0 +1,3 @@
+[submodule "web-agent-runtime"]
+	path = web-agent-runtime
+	url = git@github.com:MatrixHackin/web-agent-runtime.git

@@ -40,14 +40,38 @@ def _require_internal_token(header_token: str | None, query_token: str | None = 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='内部接口令牌无效')
 
 
+class AgentToolRequest(BaseModel):
+    token: str
+    name: str
+    arguments: dict = {}
+
+
+@router.post('/agent/tool', include_in_schema=False)
+def execute_agent_tool(payload: AgentToolRequest):
+    from app.api.deps import get_dev_agent_service
+
+    try:
+        output = get_dev_agent_service().execute_tool(payload.token, payload.name, payload.arguments)
+    except PermissionError as exc:
+        return {'ok': False, 'error': str(exc)}
+    except ValueError as exc:
+        return {'ok': False, 'error': str(exc)}
+    except Exception as exc:
+        return {'ok': False, 'error': str(exc)}
+    return {'ok': True, 'output': output}
+
+
 @router.get('/app-access/authorize', include_in_schema=False)
+@router.get('/app-access/authorize/{path_token}', include_in_schema=False)
 def authorize_app_access(
     request: Request,
+    path_token: str | None = None,
     token: str | None = Query(default=None),
     internal_token: str | None = Header(default=None, alias='X-Campus-AI-Internal-Token'),
     session_token: str | None = Cookie(default=None, alias=settings.session_cookie_name),
 ):
-    _require_internal_token(internal_token, token)
+    # Traefik Middleware 把内部令牌放在路径末段；查询参数是同一条校验的另一种写法。
+    _require_internal_token(internal_token, token or path_token)
 
     session = get_token_store().get_session(session_token) if session_token else None
     request_uri = request.headers.get('x-forwarded-uri') or request.headers.get('x-original-uri')

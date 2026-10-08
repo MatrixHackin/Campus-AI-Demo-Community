@@ -112,6 +112,79 @@ export async function commitContainer(podName, imageName) {
   })
 }
 
+export async function buildRuntimeImage(podName) {
+  return request(`/k3s/containers/${encodeURIComponent(podName)}/runtime-image`, {
+    method: 'POST'
+  })
+}
+
+export async function listAgentConfigs() {
+  return request('/agent/settings')
+}
+
+export async function createAgentConfig(payload) {
+  return request('/agent/settings', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateAgentConfig(configId, payload) {
+  return request(`/agent/settings/${encodeURIComponent(configId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteAgentConfig(configId) {
+  return request(`/agent/settings/${encodeURIComponent(configId)}`, {
+    method: 'DELETE'
+  })
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
+}
+
+export async function streamAgentTurn(payload, { onStep, onRunId, runId, seen = 0 } = {}) {
+  let activeRunId = runId
+  if (!activeRunId) {
+    const started = await request('/agent/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+    activeRunId = started.run_id
+    onRunId?.(activeRunId)
+  }
+
+  let seenCount = seen
+  let failures = 0
+  while (true) {
+    let state
+    try {
+      state = await request(`/agent/runs/${encodeURIComponent(activeRunId)}`)
+      failures = 0
+    } catch (err) {
+      const message = err instanceof Error ? err.message : ''
+      if (message.includes('不存在') || message.includes('无权')) throw err
+      failures += 1
+      if (failures >= 8) {
+        throw new Error('连接中断了。已经写入的文件还在，可以再发一条消息继续。')
+      }
+      await delay(1000)
+      continue
+    }
+    const steps = state.steps || []
+    for (let index = seenCount; index < steps.length; index += 1) onStep?.(steps[index])
+    seenCount = steps.length
+    if (state.status === 'done') return { reply: state.reply || '', steps }
+    if (state.status === 'error') throw new Error(state.error || '开发失败')
+    await delay(1000)
+  }
+}
+
 export async function getK3sJobStatus(jobName) {
   return request(`/k3s/jobs/${encodeURIComponent(jobName)}`)
 }

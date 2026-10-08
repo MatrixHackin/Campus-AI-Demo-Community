@@ -5,6 +5,7 @@ from app.services.auth_service import AuthService
 from app.services.container_usage_service import ContainerUsageService
 from app.services.harbor_service import HarborService
 from app.services.k3s_service import K3SService
+from app.services.dev_agent_service import DevAgentService
 from app.services.notification_event_bus import NotificationEventBus
 from app.services.notification_service import NotificationService
 from app.services.publication_service import PublicationService
@@ -18,6 +19,7 @@ token_store = TokenStore(ttl_hours=settings.token_ttl_hours)
 auth_service = AuthService(settings=settings, token_store=token_store)
 harbor_service = HarborService(settings=settings)
 k3s_service = K3SService(settings=settings)
+dev_agent_service = DevAgentService(settings=settings, k3s_service=k3s_service)
 container_usage_service = k3s_service.container_usage_service
 ssh_gateway_service = SSHGatewayService(settings=settings, k3s_service=k3s_service)
 notification_event_bus = NotificationEventBus()
@@ -41,6 +43,10 @@ def get_harbor_service() -> HarborService:
 
 def get_k3s_service() -> K3SService:
     return k3s_service
+
+
+def get_dev_agent_service() -> DevAgentService:
+    return dev_agent_service
 
 
 def get_container_usage_service() -> ContainerUsageService:

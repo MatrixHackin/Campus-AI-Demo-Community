@@ -117,7 +117,7 @@ function NotificationDrawer({
   )
 }
 
-export default function AppShell({ children }) {
+export default function AppShell({ children, fill = false }) {
   const { user, logout } = useAuth()
   const location = useLocation()
   const displayName = user?.display_name || user?.username || '用户'
@@ -249,7 +249,7 @@ export default function AppShell({ children }) {
   }, [loadNotifications])
 
   return (
-    <div className="site-shell app-shell">
+    <div className={`site-shell app-shell${fill ? ' app-shell--fill' : ''}`}>
       <header className="app-nav">
         <NavLink className="site-brand" to="/community" aria-label="Campus AI Community">
           <BrandLogo />
@@ -280,7 +280,7 @@ export default function AppShell({ children }) {
         </div>
       </header>
 
-      <main className="app-blank-main">{children}</main>
+      <main className={`app-blank-main${fill ? ' app-blank-main--fill' : ''}`}>{children}</main>
       <NotificationDrawer
         open={notificationOpen}
         notifications={notifications}
@@ -293,7 +293,7 @@ export default function AppShell({ children }) {
         onReadAll={handleMarkAllRead}
         onDismiss={handleDismiss}
       />
-      <SiteFooter />
+      {fill ? null : <SiteFooter />}
     </div>
   )
 }

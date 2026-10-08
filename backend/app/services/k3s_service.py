@@ -6,6 +6,7 @@ import ipaddress
 import json
 import re
 import shlex
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -49,6 +50,7 @@ class K3SService:
         self._core_v1 = None
         self._networking_v1 = None
         self._batch_v1 = None
+        self._apps_v1 = None
         self._custom_objects = None
 
     def namespace_for_emp_id(self, emp_id: str) -> str:
@@ -102,11 +104,11 @@ class K3SService:
         }
 
     def _resolve_devbox_image(self, *, image: str | None, email: str | None) -> tuple[str, bool]:
-        """解析用户从“镜像仓库”点选的镜像。
+        """开发沙盒只接受公共开发镜像。
 
-        前端“镜像仓库”始终保持一个选中项，默认是公有 devbox，因此这里不再反查 Harbor
-        校验镜像是否存在，只判断是否需要为私有镜像挂载当前用户 namespace 的 pull secret。
+        个人仓库里的镜像是发布后的运行镜像，不能再作为下一套开发环境。
         """
+        del email
         image_ref = (image or self.settings.k3s_devbox_image).strip()
         if not image_ref:
             image_ref = self.settings.k3s_devbox_image.strip()
@@ -114,19 +116,15 @@ class K3SService:
             raise ValueError('镜像地址不合法')
 
         default_image = self.settings.k3s_devbox_image.strip()
-        if image_ref == default_image:
-            return image_ref, False
-
         public_prefix = (
             f'{self.settings.harbor_registry.rstrip("/")}/'
             f'{self.settings.harbor_public_project.strip().strip("/")}/'
         )
-        if self.settings.harbor_public_project and image_ref.startswith(public_prefix):
+        if image_ref == default_image or (
+            self.settings.harbor_public_project and image_ref.startswith(public_prefix)
+        ):
             return image_ref, False
-
-        if not email:
-            raise ValueError('当前用户缺少邮箱，无法拉取私有镜像')
-        return image_ref, True
+        raise ValueError('开发沙盒只能使用公共开发镜像')
 
     def create_devbox_container(
         self,
@@ -492,18 +490,22 @@ class K3SService:
         if labels.get('campus-ai/source-namespace') != namespace:
             raise PermissionError('无权查询该保存任务')
 
+        runtime_build = labels.get('campus-ai/runtime-build') == 'true'
         status = 'Pending'
-        message = '保存任务等待运行'
+        message = '运行镜像构建等待运行' if runtime_build else '保存任务等待运行'
         if job.status:
             if job.status.succeeded:
                 status = 'Succeeded'
-                message = '镜像保存成功'
+                message = '运行镜像构建成功' if runtime_build else '镜像保存成功'
             elif job.status.failed:
                 status = 'Failed'
-                message = '镜像保存失败'
+                message = '运行镜像构建失败' if runtime_build else '镜像保存失败'
+                tail = self._job_log_tail(job_namespace, job_name)
+                if tail:
+                    message = f'{message}：{tail}'
             elif job.status.active:
                 status = 'Running'
-                message = '正在保存镜像...'
+                message = '正在构建运行镜像...' if runtime_build else '正在保存镜像...'
 
         return {
             'job_name': job_name,
@@ -511,6 +513,122 @@ class K3SService:
             'message': message,
             'image': annotations.get('campus-ai/commit-image'),
         }
+
+    def build_runtime_image(
+        self,
+        emp_id: str | None,
+        username: str,
+        email: str | None,
+        pod_name: str,
+    ) -> dict[str, Any]:
+        from app.services.runtime_workload import RuntimeWorkloadService
+
+        return RuntimeWorkloadService(self).build_runtime_image(
+            emp_id=emp_id,
+            username=username,
+            email=email,
+            pod_name=pod_name,
+        )
+
+    def deploy_published_runtime(
+        self,
+        *,
+        emp_id: str | None,
+        username: str,
+        email: str | None,
+        pod_name: str,
+    ) -> dict[str, Any]:
+        from app.services.runtime_workload import RuntimeWorkloadService
+
+        return RuntimeWorkloadService(self).deploy_published_runtime(
+            emp_id=emp_id,
+            username=username,
+            email=email,
+            pod_name=pod_name,
+        )
+
+    def remove_published_runtime(self, *, pod_name: str, username: str) -> None:
+        from app.services.runtime_workload import RuntimeWorkloadService
+
+        RuntimeWorkloadService(self).remove_published_runtime(pod_name=pod_name, username=username)
+
+    def exec_shell(
+        self,
+        namespace: str,
+        pod_name: str,
+        script: str,
+        timeout: int = 60,
+    ) -> tuple[str, str, int | None]:
+        """在开发沙盒里执行一段 shell，返回 stdout、stderr 和退出码。"""
+        from kubernetes.stream import stream
+
+        client = self._core()
+        marker = '__CAMPUS_RC:'
+        wrapped = (
+            f'/bin/bash -c {shlex.quote(script)}; '
+            f'rc=$?; printf "\\n{marker}%s\\n" "$rc"'
+        )
+        resp = stream(
+            client.connect_get_namespaced_pod_exec,
+            pod_name,
+            namespace,
+            container='devbox',
+            command=['/bin/bash', '-lc', wrapped],
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+            _preload_content=False,
+        )
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        started = time.monotonic()
+        try:
+            while resp.is_open():
+                resp.update(timeout=1)
+                if resp.peek_stdout():
+                    stdout_chunks.append(resp.read_stdout())
+                if resp.peek_stderr():
+                    stderr_chunks.append(resp.read_stderr())
+                if time.monotonic() - started > timeout:
+                    raise RuntimeError('开发沙盒命令执行超时')
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                logger.debug('关闭开发沙盒命令通道失败', exc_info=True)
+        stdout = ''.join(stdout_chunks)
+        stderr = ''.join(stderr_chunks)
+        code = getattr(resp, 'returncode', None)
+        marker_token = f'\n{marker}'
+        index = stdout.rfind(marker_token)
+        if index >= 0:
+            code_text = stdout[index + len(marker_token):].strip().splitlines()[0] if stdout[index + len(marker_token):].strip() else ''
+            stdout = stdout[:index]
+            try:
+                code = int(code_text)
+            except ValueError:
+                code = code
+        return stdout, stderr, code
+
+    def _job_log_tail(self, namespace: str, job_name: str) -> str:
+        try:
+            pods = self._core().list_namespaced_pod(
+                namespace=namespace,
+                label_selector=f'job-name={job_name}',
+            ).items
+            if not pods:
+                return ''
+            log = self._core().read_namespaced_pod_log(
+                name=pods[0].metadata.name,
+                namespace=namespace,
+                tail_lines=30,
+            )
+        except Exception as exc:
+            logger.info('读取构建日志失败：%s', exc)
+            return ''
+        lines = [line.strip() for line in (log or '').splitlines() if line.strip()]
+        return ' '.join(lines[-3:])[:400]
 
     def get_ssh_target(
         self,
@@ -731,6 +849,14 @@ class K3SService:
             self._batch_v1 = client.BatchV1Api()
         return self._batch_v1
 
+    def _apps(self):
+        if self._apps_v1 is None:
+            from kubernetes import client
+
+            self._core()
+            self._apps_v1 = client.AppsV1Api()
+        return self._apps_v1
+
     def _custom(self):
         if self._custom_objects is None:
             from kubernetes import client
@@ -749,7 +875,8 @@ class K3SService:
         parsed = urlparse(address)
         if 'token=' in parsed.query:
             return address
-        return f'{address.rstrip("/")}/{quote(token, safe="")}'
+        separator = '&' if parsed.query else '?'
+        return f'{address}{separator}token={quote(token, safe="")}'
 
     def _app_access_middleware_name(self) -> str:
         name = self.settings.app_access_auth_middleware_name.strip() or 'campus-ai-app-access-auth'
@@ -827,6 +954,30 @@ class K3SService:
         except self._api_exception_class() as exc:
             raise RuntimeError(f'更新应用 Ingress 访问控制失败：{exc.reason or exc.status}') from exc
 
+    def _set_ingress_backend_service(self, namespace: str, app_name: str, service_name: str) -> None:
+        try:
+            ingress = self._networking().read_namespaced_ingress(name=app_name, namespace=namespace)
+        except self._api_exception_class() as exc:
+            if exc.status == 404:
+                raise FileNotFoundError('未找到应用 Ingress') from exc
+            raise RuntimeError(f'查询应用 Ingress 失败：{exc.reason or exc.status}') from exc
+
+        changed = False
+        for rule in ingress.spec.rules or []:
+            if not rule.http:
+                continue
+            for path in rule.http.paths or []:
+                backend = path.backend.service if path.backend else None
+                if backend and backend.name != service_name:
+                    backend.name = service_name
+                    changed = True
+        if not changed:
+            return
+        try:
+            self._networking().replace_namespaced_ingress(name=app_name, namespace=namespace, body=ingress)
+        except self._api_exception_class() as exc:
+            raise RuntimeError(f'切换应用入口失败：{exc.reason or exc.status}') from exc
+
     @staticmethod
     def _namespace_body(namespace: str, emp_id: str | None = None):
         from kubernetes import client
@@ -860,6 +1011,9 @@ class K3SService:
             self._devbox_allow_ssh_gateway_network_policy(namespace),
             self._devbox_allow_dns_network_policy(namespace),
         ]
+        agent_policy = self._devbox_allow_agent_ingress_network_policy(namespace)
+        if agent_policy is not None:
+            policies.append(agent_policy)
         if self.settings.k3s_network_policy_public_web_egress_enabled:
             policies.append(self._devbox_allow_public_web_egress_network_policy(namespace))
 
@@ -1006,6 +1160,59 @@ class K3SService:
                 ],
             ),
         )
+
+    def _devbox_allow_agent_ingress_network_policy(self, namespace: str):
+        """放行宿主机上的 Campus AI 后端访问沙盒内 web-agent-runtime 的 4096。"""
+        from kubernetes import client
+
+        if not self.settings.dev_agent_sidecar_enabled:
+            return None
+        peers = []
+        for cidr in self.settings.dev_agent_caller_cidrs:
+            normalized = self._normalize_cidr(cidr)
+            if not normalized:
+                continue
+            peers.append(client.V1NetworkPolicyPeer(ip_block=client.V1IPBlock(cidr=normalized)))
+        if not peers:
+            return None
+        return client.V1NetworkPolicy(
+            api_version='networking.k8s.io/v1',
+            kind='NetworkPolicy',
+            metadata=self._network_policy_meta(namespace, 'campus-ai-allow-dev-agent-ingress'),
+            spec=client.V1NetworkPolicySpec(
+                pod_selector=self._devbox_pod_selector(),
+                policy_types=['Ingress'],
+                ingress=[
+                    client.V1NetworkPolicyIngressRule(
+                        _from=peers,
+                        ports=[
+                            client.V1NetworkPolicyPort(
+                                protocol='TCP',
+                                port=int(self.settings.dev_agent_port),
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+
+    def dev_agent_base_url(self, namespace: str, pod_name: str) -> str | None:
+        """沙盒里的 web-agent-runtime 就绪时，返回宿主机可访问的地址。"""
+        try:
+            pod = self._core().read_namespaced_pod(name=pod_name, namespace=namespace)
+        except self._api_exception_class():
+            return None
+        status = pod.status
+        if status is None or not status.pod_ip:
+            return None
+        ready = False
+        for container in status.container_statuses or []:
+            if container.name == 'agentd' and container.ready:
+                ready = True
+                break
+        if not ready:
+            return None
+        return f'http://{status.pod_ip}:{int(self.settings.dev_agent_port)}'
 
     def _devbox_allow_dns_network_policy(self, namespace: str):
         from kubernetes import client
@@ -1240,7 +1447,77 @@ class K3SService:
                     ),
                 )
             )
-        startup_script = self._devbox_startup_script()
+        startup_script = self._devbox_startup_script(app_name)
+        from app.services.workspace_contract import WorkspaceContract
+
+        contract = WorkspaceContract.from_settings(self.settings, app_name)
+        containers = [
+                    client.V1Container(
+                        name='devbox',
+                        image=image_ref,
+                        command=['/bin/bash', '-lc', startup_script],
+                        env=[
+                            client.V1EnvVar(name='USERNAME', value=ssh_username),
+                            client.V1EnvVar(name='CAMPUS_APP_NAME', value=app_name),
+                            client.V1EnvVar(name='CAMPUS_BASE_PATH', value=contract.base_path),
+                            client.V1EnvVar(name='CAMPUS_SOURCE_DIR', value=contract.source_dir),
+                            client.V1EnvVar(name='CAMPUS_DATA_DIR', value=contract.data_dir),
+                            client.V1EnvVar(name='CAMPUS_LISTEN_PORT', value=str(contract.listen_port)),
+                            client.V1EnvVar(
+                                name='PASSWORD',
+                                value_from=client.V1EnvVarSource(
+                                    secret_key_ref=client.V1SecretKeySelector(
+                                        name=f'{app_name}-connection',
+                                        key='connection_password',
+                                    )
+                                ),
+                            ),
+                        ],
+                        ports=[
+                            client.V1ContainerPort(
+                                name='http',
+                                container_port=3000,
+                            ),
+                            client.V1ContainerPort(
+                                name='ssh',
+                                container_port=22,
+                            ),
+                        ],
+                        resources=client.V1ResourceRequirements(
+                            requests=resource_value,
+                            limits=resource_value,
+                        ),
+                        volume_mounts=volume_mounts or None,
+                    )
+        ]
+        agent_image = (self.settings.dev_agent_image or '').strip()
+        if self.settings.dev_agent_sidecar_enabled and user_workspace_pvc_name and agent_image:
+            workspace_mounts = [
+                mount for mount in volume_mounts if mount.name == 'user-workspace'
+            ]
+            containers.append(
+                client.V1Container(
+                    name='agentd',
+                    image=agent_image,
+                    image_pull_policy='Always',
+                    env=[
+                        client.V1EnvVar(name='AGENTD_ADDR', value=f':{int(self.settings.dev_agent_port)}'),
+                        client.V1EnvVar(name='APP_WORKSPACE', value=contract.source_dir),
+                        client.V1EnvVar(name='AGENTD_SKILLS_DIR', value='/opt/aicommunity/skills'),
+                    ],
+                    ports=[
+                        client.V1ContainerPort(
+                            name='agent',
+                            container_port=int(self.settings.dev_agent_port),
+                        )
+                    ],
+                    resources=client.V1ResourceRequirements(
+                        requests={'cpu': '200m', 'memory': '256Mi'},
+                        limits={'cpu': '1', 'memory': '1Gi'},
+                    ),
+                    volume_mounts=workspace_mounts or None,
+                )
+            )
         return client.V1Pod(
             api_version='v1',
             kind='Pod',
@@ -1270,40 +1547,7 @@ class K3SService:
                 image_pull_secrets=[
                     client.V1LocalObjectReference(name=image_pull_secret_name)
                 ] if image_pull_secret_name else None,
-                containers=[
-                    client.V1Container(
-                        name='devbox',
-                        image=image_ref,
-                        command=['/bin/bash', '-lc', startup_script],
-                        env=[
-                            client.V1EnvVar(name='USERNAME', value=ssh_username),
-                            client.V1EnvVar(
-                                name='PASSWORD',
-                                value_from=client.V1EnvVarSource(
-                                    secret_key_ref=client.V1SecretKeySelector(
-                                        name=f'{app_name}-connection',
-                                        key='connection_password',
-                                    )
-                                ),
-                            ),
-                        ],
-                        ports=[
-                            client.V1ContainerPort(
-                                name='http',
-                                container_port=3000,
-                            ),
-                            client.V1ContainerPort(
-                                name='ssh',
-                                container_port=22,
-                            ),
-                        ],
-                        resources=client.V1ResourceRequirements(
-                            requests=resource_value,
-                            limits=resource_value,
-                        ),
-                        volume_mounts=volume_mounts or None,
-                    )
-                ],
+                containers=containers,
                 volumes=volumes or None,
             ),
         )
@@ -1429,8 +1673,14 @@ class K3SService:
             ],
         )
 
-    def _devbox_startup_script(self) -> str:
+    def _devbox_startup_script(self, app_name: str) -> str:
+        from app.services.workspace_contract import WorkspaceContract
+
         app_command = shlex.join(self.settings.k3s_devbox_command)
+        contract = WorkspaceContract.from_settings(self.settings, app_name)
+        source = contract.source_dir
+        data = contract.data_dir
+        mount = self._user_workspace_mount_path('')
         return (
             'set -e; '
             'if id "$USERNAME" >/dev/null 2>&1; then '
@@ -1442,8 +1692,14 @@ class K3SService:
             'fi; '
             'mkdir -p "/home/$USERNAME"; '
             'chown "$USERNAME:$USERNAME" "/home/$USERNAME" 2>/dev/null || true; '
-            f'mkdir -p {shlex.quote(self._user_workspace_mount_path(""))}; '
-            f'chown "$USERNAME:$USERNAME" {shlex.quote(self._user_workspace_mount_path(""))} 2>/dev/null || true; '
+            f'mkdir -p {shlex.quote(mount)}; '
+            f'chown "$USERNAME:$USERNAME" {shlex.quote(mount)} 2>/dev/null || true; '
+            f'mkdir -p {shlex.quote(source)}/.campus-ai {shlex.quote(data)}; '
+            f'printf %s {shlex.quote(contract.contract_json())} > {shlex.quote(source)}/.campus-ai/contract.json; '
+            f'if [ ! -f {shlex.quote(source)}/CAMPUS_AI.md ]; then '
+            f'printf %s {shlex.quote(contract.guide_text())} > {shlex.quote(source)}/CAMPUS_AI.md; '
+            'fi; '
+            f'chown -R "$USERNAME:$USERNAME" {shlex.quote(source)} {shlex.quote(data)} 2>/dev/null || true; '
             'usermod -aG sudo "$USERNAME" 2>/dev/null || true; '
             'ssh-keygen -A; '
             'mkdir -p /run/sshd /var/run/sshd; '
@@ -1879,6 +2135,20 @@ class K3SService:
                     (
                         f'service/{app_name}-ssh-svc',
                         lambda: self._core().delete_namespaced_service(name=f'{app_name}-ssh-svc', namespace=namespace),
+                    ),
+                    (
+                        f'deployment/{app_name}-runtime',
+                        lambda: self._apps().delete_namespaced_deployment(
+                            name=f'{app_name}-runtime',
+                            namespace=namespace,
+                        ),
+                    ),
+                    (
+                        f'service/{app_name}-runtime-svc',
+                        lambda: self._core().delete_namespaced_service(
+                            name=f'{app_name}-runtime-svc',
+                            namespace=namespace,
+                        ),
                     ),
                     (
                         f'secret/{app_name}-connection',

@@ -83,6 +83,18 @@ class Settings(BaseSettings):
     k3s_commit_containerd_socket: str = '/run/containerd/containerd.sock'
     k3s_commit_insecure_registry: bool = True
     k3s_commit_push_registry: str = ''
+    dev_agent_url: str = ''
+    dev_agent_timeout_seconds: int = 600
+    dev_agent_tool_base_url: str = 'http://10.120.17.138:8080'
+    dev_agent_backend: str = 'auto'
+    dev_agent_image: str = 'gpunion2.io/dev/agentd-dev:test'
+    dev_agent_port: int = 4096
+    dev_agent_sidecar_enabled: bool = True
+    dev_agent_caller_cidrs: Annotated[List[str], NoDecode] = Field(
+        default_factory=lambda: ['10.120.17.138/32', '10.120.17.139/32']
+    )
+    k3s_runtime_cpu: str = '1'
+    k3s_runtime_memory: str = '1Gi'
     k3s_apps_host: str = 'gpunion.hkust-gz.edu.cn'
     k3s_apps_path_prefix: str = '/apps'
     k3s_apps_public_base_url: str = 'https://gpunion.hkust-gz.edu.cn/apps'
@@ -201,6 +213,17 @@ class Settings(BaseSettings):
             return value
         return value
 
+    @field_validator('dev_agent_backend', mode='before')
+    @classmethod
+    def normalize_dev_agent_backend(cls, value):
+        if isinstance(value, str):
+            value = value.strip().lower().replace('_', '-')
+            if value in {'python', 'builtin', 'inprocess', 'local'}:
+                return 'builtin'
+            if value in {'web', 'web-agent-runtime', 'agentd'}:
+                return 'web-agent'
+        return value
+
     @field_validator('ssh_gateway_target_mode', mode='before')
     @classmethod
     def normalize_ssh_gateway_target_mode(cls, value):
@@ -223,6 +246,7 @@ class Settings(BaseSettings):
         'k3s_network_policy_coredns_pod_labels',
         'k3s_network_policy_ssh_gateway_pod_labels',
         'k3s_network_policy_internal_allow_rules',
+        'dev_agent_caller_cidrs',
         mode='before',
     )
     @classmethod

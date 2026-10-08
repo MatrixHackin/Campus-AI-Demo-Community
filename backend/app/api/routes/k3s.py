@@ -167,6 +167,30 @@ async def commit_user_container(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
+@router.post('/containers/{pod_name}/runtime-image', response_model=ContainerCommitResponse)
+async def build_runtime_image(
+    pod_name: str,
+    current_session: SessionRecord = Depends(get_current_session_with_emp_id),
+    k3s_service: K3SService = Depends(get_k3s_service),
+):
+    try:
+        return await run_in_threadpool(
+            k3s_service.build_runtime_image,
+            current_session.emp_id,
+            current_session.username,
+            current_session.email,
+            pod_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
 @router.get('/jobs/{job_name}', response_model=K3SJobStatusResponse)
 async def get_k3s_job_status(
     job_name: str,

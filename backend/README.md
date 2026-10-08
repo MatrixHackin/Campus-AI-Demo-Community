@@ -102,22 +102,20 @@ SSO 登录成功后，后端会将 SSO 返回的用户画像 upsert 到 `sso_use
 
 ## Harbor 镜像仓库
 
-当前已接入 Harbor，用于“工作台”右侧展示镜像，并在用户点击“保存容器”时为用户准备私有仓库：
+当前已接入 Harbor。公共项目存放开发镜像，用户个人项目存放发布时构建的运行镜像：
 
-- “我的镜像”：当前登录用户邮箱对应的私有项目。
-- “公有镜像”：`HARBOR_PUBLIC_PROJECT` 指向的 Harbor 项目，当前默认 `dev`。
+- “开发镜像”：`HARBOR_PUBLIC_PROJECT` 指向的 Harbor 项目，当前默认 `dev`。创建沙盒时只能选择这里的镜像。
+- “运行镜像”：当前登录用户邮箱对应的私有项目。发布应用时按开发目录里的 Dockerfile 构建并推送，仓库名与应用名相同。
 
 - Harbor 用户名使用当前登录用户邮箱。
 - 私有项目名按邮箱转换：`user@example.com` -> `user-at-example-dot-com-repo`。
-- 不在 SSO 登录或首次申请容器时自动创建 Harbor 用户或项目；用户点击“保存容器”时，会自动确保 Harbor 用户、
+- 不在 SSO 登录或首次申请容器时自动创建 Harbor 用户或项目；第一次发布应用时，会自动确保 Harbor 用户、
   private 项目和项目 developer 成员关系存在。
-- 保存容器时，会在用户 namespace 中创建/更新 `kubernetes.io/dockerconfigjson` 类型的 imagePullSecret，
-  供后续从用户私有项目 pull 镜像使用；保存 Job 也运行在用户 namespace 中并复用该 imagePullSecret 拉取
-  `nerdctl` runner 镜像。
-- 保存容器时，还会在用户 namespace 中创建/更新一个持久的 Harbor 凭据 Secret，用于 Job 注入
-  `HARBOR_USERNAME` / `HARBOR_PASSWORD` 并执行 `nerdctl login` 后 push 镜像；不再为每个 Job 创建临时凭据 Secret。
+- 发布运行镜像时，会在用户 namespace 中创建/更新 `kubernetes.io/dockerconfigjson` 类型的 imagePullSecret，
+  供运行副本拉取个人仓库镜像；构建 Job 也运行在用户 namespace 中。
+- 构建 Job 使用持久的 Harbor 凭据 Secret 注入 `HARBOR_USERNAME` / `HARBOR_PASSWORD`，执行 `nerdctl login` 后 push。
 - 不开放镜像删除接口。
-- 公共镜像项目通过 `HARBOR_PUBLIC_PROJECT` 配置，后续可改为本项目专用公共镜像项目。
+- 公共镜像项目通过 `HARBOR_PUBLIC_PROJECT` 配置。
 
 需要在 `.env` 中配置：
 
@@ -238,19 +236,17 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
 - `GET /api/v1/k3s/containers`：查询当前登录用户 `emp_id` 对应 namespace 下的 Pod 列表；namespace 不存在时返回空列表。
 - `DELETE /api/v1/k3s/containers/{pod_name}`：删除当前登录用户 namespace 下的 Pod，并同步删除对应
   Secret、Web Service、SSH Service、Ingress 和 `containers` 表记录。
-- `POST /api/v1/k3s/containers/{pod_name}/commit`：手动保存当前用户容器为 Harbor 私有镜像；请求体为
-  `{"image_name":"my-backup-v1"}`。后端会在原 Pod 所在节点创建特权 Job，挂载 K3s containerd socket，
-  使用当前用户邮箱和 `HARBOR_USER_DEFAULT_PASSWORD` 执行 `nerdctl login`，再通过 `nerdctl commit`
-  生成镜像并推送到当前用户邮箱对应的 Harbor 私有项目。注意：`HARBOR_REGISTRY`
-  通常用于展示镜像名，如 `gpunion2.io`；保存容器时的实际 push registry 默认从 `HARBOR_URL` 提取，
-  例如 `http://10.120.17.137:5053/api/v2.0/` 会使用 `10.120.17.137:5053`，避免 Job 内访问
-  `https://gpunion2.io/v2/` 导致 DNS/协议失败。必要时可用 `K3S_COMMIT_PUSH_REGISTRY` 显式覆盖。
-- `GET /api/v1/k3s/jobs/{job_name}`：查询“保存容器”Job 状态。
+- `POST /api/v1/k3s/containers/{pod_name}/runtime-image`：读取开发沙盒 `/mydata/apps/{app_name}/Dockerfile`，
+  提交构建 Job，把运行镜像推到当前用户的 Harbor 私有项目。实际 push registry 默认从 `HARBOR_URL` 提取。
+- `GET /api/v1/k3s/jobs/{job_name}`：查询运行镜像构建或旧的保存任务状态。
+- `GET/POST /api/v1/agent/settings`、`PUT/DELETE /api/v1/agent/settings/{config_id}`：保存多组模型配置。每组包含接口、模型名称和 API Key，Key 只回传尾号。
+- `POST /api/v1/agent/chat`：用所选模型配置启动一轮开发，立即返回 `run_id`。`GET /api/v1/agent/runs/{run_id}` 轮询工具步骤、回复和错误。Agent 只把文件写到该应用的代码目录。
 - `WebSocket /api/v1/ssh/ws/{app_name}/{ssh_username}`：WebSSH 浏览器终端通道。
 - `GET /api/v1/community/apps`：应用市场列表。
-- `POST /api/v1/community/apps/{pod_name}/publish`：发布当前用户容器到应用市场，表单字段为
+- `POST /api/v1/community/apps/{pod_name}/publish`：确认个人仓库里已有该应用的运行镜像后，创建运行副本并把
+  `/apps/{app_name}` 切到运行副本，再写入应用市场。表单字段为
   `app_description` 和可选 `cover`；`app_description` 是应用卡片两行内展示的应用简述，最多 40 个字符；
-  前端会先压缩封面，后端再限制文件大小。
+  前端会先压缩封面，后端再限制文件大小。取消发布会删掉运行副本，并把入口切回开发沙盒。
 - `POST /api/v1/community/apps/{publication_id}/visit`：应用市场访问计数；点击“访问应用”时调用并累加
   `published_apps.visit_count`。
 - `POST /api/v1/community/apps/{publication_id}/like`：点赞或取消点赞。
@@ -307,13 +303,14 @@ PROMETHEUS_QUERY_RANGE_MIN_STEP_SECONDS=60
   `@`、空格等特殊字符，工作台会改用等价的 `ssh -l '{ssh_username}+{app_name}' 10.120.17.138 -p 2222`。
 - k3s SSH Gateway 使用由 `.run/ssh_gateway_host_key` 创建的固定 HostKey Secret；请不要删除或随意替换该文件，否则
   原生 SSH、VS Code Remote-SSH 和 Cursor Remote-SSH 客户端会提示服务端 HostKey 变化。
-- 由于应用是按 `/apps/{app_name}` 子路径代理，容器内 Web 应用需要在模板或项目配置中设置对应
-  base path，否则页面 HTML 可能能打开但静态资源路径会不正确。
+- 由于应用是按 `/apps/{app_name}` 子路径代理，运行镜像里的 Web 应用需要把 base path 设成这个路径。
+  开发 Agent 会按 `/mydata/apps/{app_name}/Dockerfile` 生成启动方式；发布时平台用这份 Dockerfile 构建运行镜像，
+  再把应用入口切到独立的运行副本。开发沙盒继续保留。
+- 运行镜像构建依赖 `K3S_COMMIT_NERDCTL_IMAGE` 内置 `nerdctl`，并要求后端配置 Harbor 管理员账号。构建 Job 为
+  privileged，挂载宿主机 containerd socket 和用户工作区 PVC，只允许沙盒所有者触发。Job 设置 `backoffLimit=0`。
+- 开发 Agent 优先使用沙盒里的 `web-agent-runtime`（子模块，独立构建镜像 `DEV_AGENT_IMAGE`）。新建沙盒会在同一个 Pod 里加一个 `agentd` 容器，挂载该用户自己的 `/mydata`，监听 `4096`。后端把这一轮的模型配置和工作目录用 `POST /v1/turns` 交给它。每个用户的工作区是单独的 NFS 卷，所以不能靠一个共享 Deployment 挂载所有人的目录；用户之间的并发来自各自沙盒里的 `agentd`。已有沙盒没有这个容器时，`DEV_AGENT_BACKEND=auto` 仍使用 `dev-agent/` 里的 Python runtime。模型 API Key 由用户在工作台的模型配置中心保存，不写入镜像。开发页面在 `/studio/{app_name}`。
 - 应用市场封面第一版保存在后端本地 `PUBLISHED_COVER_STORAGE_DIR`，数据库只保存 URL；如果后续图片量变大，
   建议替换为图床或对象存储，并只在 `published_apps.cover_url` 中保存外部 URL。
-- “保存容器”依赖 `K3S_COMMIT_NERDCTL_IMAGE` 内置 `nerdctl`，并要求后端配置 Harbor 管理员账号；该功能会创建
-  privileged Job 并挂载宿主机 containerd socket，因此只允许容器所有者通过后端鉴权后触发。保存 Job 设置
-  `backoffLimit=0`，失败时不自动重试，避免一个保存任务产生多个 commit Pod 或重复 push。
 - 容器资源消耗汇总使用 Prometheus 查询窗口增量：CPU 使用 `increase(container_cpu_usage_seconds_total)` 记录
   core-seconds；网络使用 `increase(container_network_*_bytes_total)` 记录总字节；内存使用
   `container_memory_working_set_bytes` 的窗口平均/峰值，并计算 GB-hours。当前集群 Prometheus retention 为

@@ -1,0 +1,71 @@
+# 开发 Agent runtime。镜像里没有模型密钥，密钥由工作台随每次请求传入。
+# 构建并推送：
+#   nerdctl --namespace k3s.io build -t gpunion2.io/dev/campus-ai-dev-agent:latest dev-agent
+#   nerdctl --namespace k3s.io push gpunion2.io/dev/campus-ai-dev-agent:latest
+# 后端通过 DEV_AGENT_URL=http://127.0.0.1:30088 调用本服务。
+# 留空 DEV_AGENT_URL 时，同一套 runtime 在后端进程内执行。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: campus-ai-dev-agent
+  namespace: campus-ai-system
+  labels:
+    app: campus-ai-dev-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: campus-ai-dev-agent
+  template:
+    metadata:
+      labels:
+        app: campus-ai-dev-agent
+    spec:
+      nodeSelector:
+        competition: "true"
+      containers:
+        - name: agent
+          image: gpunion2.io/dev/campus-ai-dev-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: "200m"
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: campus-ai-dev-agent
+  namespace: campus-ai-system
+  labels:
+    app: campus-ai-dev-agent
+spec:
+  type: NodePort
+  selector:
+    app: campus-ai-dev-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: 30088

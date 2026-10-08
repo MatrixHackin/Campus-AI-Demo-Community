@@ -204,6 +204,17 @@ CREATE TABLE IF NOT EXISTS `log` (
   KEY idx_log_deleted_at (deleted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS user_agent_settings (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  username VARCHAR(255) NOT NULL,
+  api_base VARCHAR(512) NOT NULL,
+  model_name VARCHAR(128) NOT NULL,
+  api_key VARCHAR(1024) NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_agent_settings_username (username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO users (username, display_name, password_hash)
 VALUES (
   'admin',

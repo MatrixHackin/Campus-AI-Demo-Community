@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.deps import settings, ssh_gateway_service
 from app.api.routes.admin_notifications import router as admin_notifications_router
 from app.api.routes.admin import router as admin_router
+from app.api.routes.agent import router as agent_router
 from app.api.routes.auth import api_router as auth_api_router, browser_router as auth_browser_router, callback_router
 from app.api.routes.community import router as community_router
 from app.api.routes.harbor import router as harbor_router
@@ -39,6 +40,7 @@ def create_application() -> FastAPI:
         }
 
     application.include_router(auth_api_router, prefix='/api/v1')
+    application.include_router(agent_router, prefix='/api/v1')
     application.include_router(admin_router, prefix='/api/v1')
     application.include_router(admin_notifications_router, prefix='/api/v1')
     application.include_router(community_router, prefix='/api/v1')
